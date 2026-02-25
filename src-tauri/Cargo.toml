@@ -21,7 +21,9 @@ tauri-plugin-dialog = "2.6.0"
 tauri-plugin-process = "2.0.0"
 tauri-plugin-updater = "2.0.0"
 anyhow = "1.0.98"
-tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "fs", "net", "time"] }
+tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "fs", "net", "time", "process"] }
+tokio-util = { version = "0.7" }
+uuid = { version = "1.0", features = ["v4"] }
 # HTTP 客户端
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 # 异步流处理

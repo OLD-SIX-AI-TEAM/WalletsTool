@@ -3,8 +3,7 @@ import { useRouter } from 'vue-router'
 import { useEcosystemStore } from '@/stores/ecosystem'
 import {Notification, Modal, Message} from "@arco-design/web-vue";
 import { onMounted, onBeforeUnmount, ref, h, computed } from "vue";
-import party from "party-js";
-import { confettiStore, useThemeStore } from '@/stores'
+import { useThemeStore } from '@/stores'
 import { getVersion } from '@tauri-apps/api/app'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -17,7 +16,6 @@ import packageJson from '@/../package.json'
 
 const router = useRouter()
 const ecoStore = useEcosystemStore()
-const store = confettiStore()
 const themeStore = useThemeStore()
 let windowCount = ref({})
 let windowListObj = ref({})
@@ -52,19 +50,19 @@ const dockBackgroundStyle = computed(() => {
   }
 })
 
-// 计算确认弹窗背景样式 - 与dock保持一致
+// 计算确认弹窗背景样式 - 确保在白色主题下清晰可见
 const confirmModalStyle = computed(() => {
-  // 使用与dock相同的透明度计算逻辑
-  const adjustedOpacity = windowOpacity.value
-
+  // 确认弹窗使用纯色背景，不使用透明度
   const isDark = themeStore.currentTheme === 'dark'
   if (isDark) {
     return {
-      background: `rgba(60, 55, 50, ${adjustedOpacity})`
+      background: `rgba(60, 55, 50, 0.95)`,
+      borderRadius: '16px'
     }
   } else {
     return {
-      background: `rgba(240, 235, 230, ${adjustedOpacity})`
+      background: `#ffffff`,
+      borderRadius: '16px'
     }
   }
 })
@@ -127,21 +125,6 @@ onMounted(async () => {
     }
   } catch (error) {
     console.error('Failed to apply window opacity:', error)
-  }
-
-  const newFlag = dockItems.filter(item => item.isNew).length > 0
-  if (newFlag && store.status) {
-    party.confetti(document.getElementById('app'), {
-      count: party.variation.range(100, 150),
-      spread: party.variation.range(30, 80),
-      size: party.variation.range(0.6, 1.3),
-      colors: ['#9dbd4d', '#5a91d9', '#e8c261'],
-      origin: {
-        x: 0.5,
-        y: 0.3
-      }
-    })
-    store.changeStatus(false)
   }
 
   // 监听主窗口关闭请求事件
@@ -224,29 +207,35 @@ onBeforeUnmount(() => {
 const dockItems = [
   {
     id: 'wallet-manager',
-    title: '钱包管理',
+    title: '钱包',
     desc: '批量管理私钥/助记词/地址',
     icon: 'wallet',
-    isNew: true,
     color: '#586cc7'
   },
   {
     id: 'transfer',
-    title: '多对多转账',
+    title: '转账',
     desc: 'EVM/Solana 批量转账',
     icon: 'transfer',
     color: '#52c41a'
   },
   {
     id: 'balance',
-    title: '余额查询',
+    title: '余额',
     desc: '多链资产查询导出',
     icon: 'balance',
     color: '#faad14'
   },
   {
+    id: 'airdrop-browser',
+    title: '浏览器',
+    desc: 'Playwright 自动化',
+    icon: 'browser',
+    color: '#13c2c2'
+  },
+  {
     id: 'distribution',
-    title: '极速分发',
+    title: '分发',
     desc: '单钱包快速分发',
     icon: 'rocket',
     isBuilding: true,
@@ -254,19 +243,11 @@ const dockItems = [
   },
   {
     id: 'monitor',
-    title: '链上监控',
+    title: '监控',
     desc: '地址分析监控',
     icon: 'monitor',
     isBuilding: true,
     color: '#722ed1'
-  },
-  {
-    id: 'airdrop-browser',
-    title: '浏览器自动化',
-    desc: 'Playwright 自动化',
-    icon: 'browser',
-    isNew: true,
-    color: '#13c2c2'
   }
 ]
 
@@ -304,16 +285,18 @@ const handleItemHover = (index) => {
 const handleDragStart = async (e) => {
   const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
   if (!isTauri) return
-  
+
   // 只响应左键
   if (e.button !== 0) return
 
-  // 检查点击目标是否是图标点击区域
+  // 检查点击目标是否是图标点击区域或文字标签
   const target = e.target
   const isIconHitbox = target.closest('.dock-icon-hitbox')
-  
-  if (isIconHitbox) return
-  
+  const isDockLabel = target.closest('.dock-label')
+  const isDockItem = target.closest('.dock-item')
+
+  if (isIconHitbox || isDockLabel || isDockItem) return
+
   try {
     const currentWindow = getCurrentWindow()
     await currentWindow.startDragging()
@@ -976,7 +959,6 @@ async function handleMainWindowCloseRequest() {
         ref="dockRef"
         :style="dockBackgroundStyle"
         @mousemove="handleDockMouseMove"
-        @mouseleave="handleDockMouseLeave"
         @mousedown="handleDragStart"
       >
         <div class="dock-bg"></div>
@@ -990,6 +972,7 @@ async function handleMainWindowCloseRequest() {
           }"
           :style="getDockItemStyle(index)"
           @mouseenter="handleItemHover(index)"
+          @mouseleave="handleDockMouseLeave"
           @click="handleItemClick(item)"
         >
           <div class="dock-icon" :style="{ background: `linear-gradient(135deg, ${item.color}, ${adjustColor(item.color, -30)})` }">
@@ -1000,18 +983,13 @@ async function handleMainWindowCloseRequest() {
                 <path d="M2 10h20"/>
                 <circle cx="16" cy="12" r="1" fill="currentColor"/>
               </svg>
-              <svg v-else-if="item.icon === 'transfer'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="7" cy="7" r="3"/>
-                <circle cx="17" cy="17" r="3"/>
-                <path d="M9.5 8.5L14.5 15.5"/>
-                <path d="M14.5 8.5L9.5 15.5"/>
+              <svg v-else-if="item.icon === 'transfer'" class="custom-icon" viewBox="0 0 1024 1024">
+                <path d="M1.052856 278.365165c0-110.542612 90.062799-200.613475 200.82311-200.82311h129.361465l-33.864258-33.864258a25.478822 25.478822 0 0 1 0-36.146064 25.478822 25.478822 0 0 1 36.162189 0l77.524962 77.533025c4.813562 4.805499 7.522703 11.489659 7.522702 18.181881 0 6.893795-2.709141 13.368319-7.522702 18.181881l-77.524962 77.524961a25.454634 25.454634 0 0 1-18.181881 7.522703c-6.692222 0-13.166746-2.499505-18.181881-7.522703a25.478822 25.478822 0 0 1 0-36.154126l33.856195-33.848132H201.658268c-82.338524 0-149.413942 67.083482-149.413943 149.413942v91.538314c0 14.206862-11.288086 25.696521-25.494948 25.696521A25.688458 25.688458 0 0 1 1.052856 369.903479V278.365165z m475.421925 246.386663c13.997226 0 25.494948 11.497722 25.704584 25.494948v448.048317A25.688458 25.688458 0 0 1 476.474781 1023.999677H28.628037a25.688458 25.688458 0 0 1-25.704584-25.704584V550.456412a25.688458 25.688458 0 0 1 25.704584-25.704584h447.838681z m-25.704584 447.838681h0.209636V575.95136H54.340684v396.639149h396.429513z m546.472363-344.181801a25.688458 25.688458 0 0 1 25.704584 25.696521v91.74795c0 110.542612-90.062799 200.613475-200.613475 200.613474H692.972205l33.864258 33.864258a25.478822 25.478822 0 0 1 0 36.146064 25.454634 25.454634 0 0 1-18.189944 7.522702c-6.692222 0-13.166746-2.507568-18.181881-7.522702l-77.524962-77.533025a25.607829 25.607829 0 0 1-7.522702-18.181881c0-6.893795 2.709141-13.368319 7.522702-18.181881l77.524962-77.524961a25.478822 25.478822 0 0 1 36.154126 0 25.478822 25.478822 0 0 1 0 36.154126l-33.856195 33.848132h129.361465c82.338524 0 149.413942-67.083482 149.413942-149.413942V654.105229a25.688458 25.688458 0 0 1 25.704584-25.696521zM995.371963 0.218666c14.214925 0 25.494948 11.489659 25.704584 25.704584v447.838682a25.688458 25.688458 0 0 1-25.704584 25.704584H547.525219a25.688458 25.688458 0 0 1-25.704584-25.704584V2.92325a25.688458 25.688458 0 0 1 25.704584-25.704584h447.838682z m-25.704584 448.048318h0.209636V51.218666H573.229803v397.048318h396.437576z" fill="currentColor"/>
               </svg>
-              <svg v-else-if="item.icon === 'balance'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9"/>
-                <path d="M12 6v12"/>
-                <path d="M8 9h8"/>
-                <path d="M8 12h8"/>
-                <path d="M8 15h8"/>
+              <svg v-else-if="item.icon === 'balance'" class="custom-icon" viewBox="0 0 1024 1024">
+                <path d="M67.723636 766.603636a46.545455 46.545455 0 0 1 80.709819-46.312727A418.909091 418.909091 0 1 0 93.090909 512a46.545455 46.545455 0 0 1-93.044364 0C0 229.236364 229.236364 0 512 0s512 229.236364 512 512-229.236364 512-512 512a511.767273 511.767273 0 0 1-444.276364-257.396364z" fill="currentColor"/>
+                <path d="M649.448727 372.363636a46.545455 46.545455 0 1 0 0-93.090909h-229.934545a93.090909 93.090909 0 0 0-93.090909 93.090909v69.818182a93.090909 93.090909 0 0 0 93.090909 93.090909H605.090909V605.090909H372.363636a46.545455 46.545455 0 0 0 0 93.090909h232.727273a93.090909 93.090909 0 0 0 93.090909-93.090909v-69.818182a93.090909 93.090909 0 0 0-93.090909-93.090909H419.560727V372.363636h229.934546z" fill="currentColor"/>
+                <path d="M558.545455 744.587636a46.545455 46.545455 0 1 1-93.09091 0v-92.811636a46.545455 46.545455 0 1 1 93.09091 0v92.811636zM558.545455 325.818182a46.545455 46.545455 0 0 1-93.09091 0V232.727273a46.545455 46.545455 0 0 1 93.09091 0v93.090909z" fill="currentColor"/>
               </svg>
               <svg v-else-if="item.icon === 'rocket'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>
@@ -1035,7 +1013,6 @@ async function handleMainWindowCloseRequest() {
             </div>
           </div>
 
-          <span v-if="item.isNew" class="dock-badge new"></span>
           <span v-if="item.isBuilding" class="dock-badge building"></span>
 
           <div class="dock-label">{{ item.title }}</div>
@@ -1047,6 +1024,7 @@ async function handleMainWindowCloseRequest() {
           class="dock-item settings-item"
           :style="getDockItemStyle(dockItems.length)"
           @mouseenter="handleItemHover(dockItems.length)"
+          @mouseleave="handleDockMouseLeave"
           @click="openSettings"
         >
           <div class="dock-icon settings-icon">
@@ -1067,6 +1045,7 @@ async function handleMainWindowCloseRequest() {
           class="dock-item close-item"
           :style="getDockItemStyle(dockItems.length + 1)"
           @mouseenter="handleItemHover(dockItems.length + 1)"
+          @mouseleave="handleDockMouseLeave"
           @click="closeWindow"
         >
           <div class="dock-icon close-icon">
@@ -1123,6 +1102,7 @@ async function handleMainWindowCloseRequest() {
   align-items: center;
   user-select: none;
   -webkit-user-select: none;
+  /* 设置较大的圆角 */
   border-radius: 18px;
 }
 
@@ -1132,7 +1112,7 @@ async function handleMainWindowCloseRequest() {
   top: 0;
   left: 0;
   right: 0;
-  height: 40px;
+  height: 12px;
   -webkit-app-region: drag;
   z-index: 9999;
   cursor: move;
@@ -1147,7 +1127,8 @@ async function handleMainWindowCloseRequest() {
   z-index: 1;
   width: 100%;
   height: 100%;
-  padding: 20px;
+  /* 减小padding让dock贴近窗口边缘，避免padding区域出现透明痕迹 */
+  padding: 8px;
 }
 
 /* Dock栏 - 可拖拽 */
@@ -1162,10 +1143,11 @@ async function handleMainWindowCloseRequest() {
 /* Dock 栏 - 玻璃态背景（灰褐色） */
 .dock {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 6px;
-  padding: 12px 16px;
+  padding: 20px 16px 12px;
   position: relative;
+  /* 设置较大的圆角 */
   border-radius: 18px;
   /* 背景色由动态样式控制，支持透明度调节 */
   backdrop-filter: blur(20px);
@@ -1179,9 +1161,10 @@ async function handleMainWindowCloseRequest() {
 /* Dock 分隔线 */
 .dock-divider {
   width: 1px;
-  height: 36px;
+  height: 50px;
   background: rgba(255, 255, 255, 0.15);
   margin: 0 6px;
+  align-self: center;
 }
 
 .dock-item {
@@ -1190,10 +1173,10 @@ async function handleMainWindowCloseRequest() {
   flex-direction: column;
   align-items: center;
   cursor: pointer;
-  transform-origin: center center;
+  transform-origin: center bottom;
   transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
   z-index: 1;
-  padding: 4px;
+  padding: 8px 4px 4px;
 }
 
 .dock-item.disabled {
@@ -1202,28 +1185,29 @@ async function handleMainWindowCloseRequest() {
 }
 
 .dock-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .dock-icon-hitbox {
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .dock-icon svg {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   color: white;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+  pointer-events: none;
 }
 
 .dock-item:hover {
@@ -1236,6 +1220,15 @@ async function handleMainWindowCloseRequest() {
 
 .dock-item:active .dock-icon {
   transform: scale(0.95);
+}
+
+/* 自定义图标样式 */
+.custom-icon {
+  width: 24px;
+  height: 24px;
+  color: white;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+  pointer-events: none;
 }
 
 /* 设置图标 - 9点网格样式 */
@@ -1278,6 +1271,7 @@ async function handleMainWindowCloseRequest() {
   height: 6px;
   border-radius: 50%;
   z-index: 2;
+  pointer-events: none;
 }
 
 .dock-badge.new {
@@ -1297,20 +1291,21 @@ async function handleMainWindowCloseRequest() {
 /* 标签文字 */
 .dock-label {
   margin-top: 4px;
-  font-size: 10px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
   text-align: center;
   white-space: nowrap;
   transition: color 0.2s ease;
+  pointer-events: none;
 }
 
 .dock-item:hover .dock-label {
-  color: rgba(255, 255, 255, 1);
+  color: #ffffff;
 }
 
 .dock-item.disabled .dock-label {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 /* 明亮主题样式 */
@@ -1327,17 +1322,15 @@ async function handleMainWindowCloseRequest() {
 }
 
 .light-theme .dock-label {
-  color: rgba(0, 0, 0, 0.75);
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.5);
+  color: #000000;
 }
 
 .light-theme .dock-item:hover .dock-label {
-  color: rgba(0, 0, 0, 0.95);
-  text-shadow: 0 1px 3px rgba(255, 255, 255, 0.8);
+  color: #000000;
 }
 
 .light-theme .dock-item.disabled .dock-label {
-  color: rgba(0, 0, 0, 0.45);
+  color: rgba(0, 0, 0, 0.5);
 }
 
 /* 确认弹窗样式 - Dock风格 */
@@ -1350,6 +1343,7 @@ async function handleMainWindowCloseRequest() {
   background: rgba(0, 0, 0, 0.3);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  border-radius: 16px !important;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1363,11 +1357,12 @@ async function handleMainWindowCloseRequest() {
   padding: 14px 20px;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border-radius: 18px;
+  border-radius: 16px !important;
+  overflow: hidden;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   max-width: 380px;
   animation: confirmPopIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
 }
 
 @keyframes confirmPopIn {
@@ -1426,7 +1421,7 @@ async function handleMainWindowCloseRequest() {
 
 .confirm-btn {
   padding: 6px 14px;
-  border-radius: 10px;
+  border-radius: 8px;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -1463,8 +1458,7 @@ async function handleMainWindowCloseRequest() {
 
 /* 明亮主题确认弹窗 */
 .confirm-modal.light-theme {
-  border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .confirm-modal.light-theme .confirm-title {
@@ -1508,18 +1502,23 @@ async function handleMainWindowCloseRequest() {
 }
 </style>
 <style>
-body {
+html, body {
   overflow: hidden;
   background: transparent !important;
+  border-radius: 18px;
+  margin: 0;
+  padding: 0;
 }
 
 #app {
   overflow: hidden;
   background: transparent !important;
+  border-radius: 18px;
 }
 
 .home {
   overflow: hidden !important;
   background: transparent !important;
+  border-radius: 20px !important;
 }
 </style>

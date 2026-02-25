@@ -49,7 +49,9 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-updater",
  "tokio",
+ "tokio-util",
  "url",
+ "uuid",
  "winapi",
  "zeroize",
 ]
@@ -9238,6 +9240,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",

@@ -74,8 +74,8 @@ async fn show_main_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 async fn set_main_window_size_for_dock<R: Runtime>(app: AppHandle<R>, item_count: u32) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         // 计算dock宽度 - 基于前端实际样式
-        // dock-icon: 48px, dock-item padding: 4px, 所以每个item占用: 48 + 4*2 = 56px
-        let item_width = 56u32;
+        // dock-icon: 40px, dock-item padding: 4px, 所以每个item占用: 40 + 4*2 = 48px
+        let item_width = 48u32;
         // dock item之间的gap: 6px (dock的gap属性)
         let gap = 6u32;
         // 分隔线: 1px宽 + margin 0 6px = 13px实际占用
@@ -103,8 +103,8 @@ async fn set_main_window_size_for_dock<R: Runtime>(app: AppHandle<R>, item_count
         let total_width = calculated_width.min(max_width);
 
         // 高度固定为dock高度 + 边距
-        // 上padding 12px + 下padding 12px + 图标48px + label约20px + 角标溢出空间
-        let total_height = 100u32;
+        // 上padding 20px + 下padding 12px + dock-item上padding 8px + 图标40px + label约16px
+        let total_height = 96u32;
 
         println!("[set_main_window_size_for_dock] item_count={}, total_items={}, gaps={}, dividers={}, calculated_width={}, final_width={}",
             item_count, total_items, gaps_count, divider_count, calculated_width, total_width);
@@ -297,7 +297,7 @@ async fn main() {
             
             if let Some(window) = app.get_webview_window("main") {
                 // 计算dock宽度 - 与 set_main_window_size_for_dock 函数保持一致
-                let item_width = 56u32;
+                let item_width = 48u32;
                 let gap = 6u32;
                 let divider_width = 13u32;
                 let padding = 32u32;
@@ -315,7 +315,7 @@ async fn main() {
                     + padding;
 
                 let total_width = calculated_width.min(max_width);
-                let total_height = 100u32;
+                let total_height = 96u32;
 
                 println!("[setup] Setting initial window size: {}x{}", total_width, total_height);
 
@@ -346,13 +346,23 @@ async fn main() {
                         eprintln!("设置主窗口初始位置失败: {e}");
                     }
                 }
-            }
 
-            // 移除主窗口的阴影效果（Windows系统默认会为无框窗口添加阴影）
-            #[cfg(target_os = "windows")]
-            if let Some(window) = app.get_webview_window("main") {
+                // 先设置好位置和大小，最后再显示窗口，避免出现位置不对的透明轮廓
+                if let Err(e) = window.show() {
+                    eprintln!("显示主窗口失败: {e}");
+                } else {
+                    println!("[setup] Window shown successfully at correct position");
+                }
+
+                // 确保窗口获得焦点
+                if let Err(e) = window.set_focus() {
+                    eprintln!("设置主窗口焦点失败: {e}");
+                }
+
+                // 禁用窗口阴影，避免在圆角处显示窗口边框
+                #[cfg(target_os = "windows")]
                 if let Err(e) = window.set_shadow(false) {
-                    eprintln!("移除主窗口阴影失败: {e}");
+                    eprintln!("禁用主窗口阴影失败: {e}");
                 }
             }
 
@@ -660,6 +670,20 @@ async fn main() {
             wallets_tool::airdrop::commands::toggle_browser_extension,
             wallets_tool::airdrop::commands::scan_extension_folder,
             wallets_tool::airdrop::commands::import_extension_from_folder,
+            // playwright execution commands
+            wallets_tool::playwright::execute_playwright_script,
+            // playwright executor commands (optimized concurrent execution)
+            wallets_tool::playwright::executor::playwright_create_session,
+            wallets_tool::playwright::executor::playwright_start_execution,
+            wallets_tool::playwright::executor::playwright_get_execution_status,
+            wallets_tool::playwright::executor::playwright_cancel_execution,
+            wallets_tool::playwright::executor::playwright_cleanup_session,
+            // playwright recorder commands
+            wallets_tool::playwright::recorder::playwright_start_recording,
+            wallets_tool::playwright::recorder::playwright_stop_recording,
+            wallets_tool::playwright::recorder::playwright_get_recording_session,
+            wallets_tool::playwright::recorder::check_cli_tools,
+            wallets_tool::playwright::recorder::install_node_environment,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

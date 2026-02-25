@@ -585,7 +585,7 @@ onUnmounted(() => {
 .execution-panel {
   height: 100%;
   display: flex;
-  gap: 20px;
+  gap: 10px;
 }
 
 /* 配置面板 */
@@ -596,7 +596,7 @@ onUnmounted(() => {
   padding: 15px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 10px;
   border: 1px solid var(--color-border);
   overflow-y: auto;
 }
@@ -703,7 +703,7 @@ onUnmounted(() => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 10px;
 }
 
 .control-bar {
@@ -718,7 +718,7 @@ onUnmounted(() => {
 
 .status-overview {
   display: flex;
-  gap: 20px;
+  gap: 10px;
 }
 
 .stat-card {

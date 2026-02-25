@@ -8,8 +8,8 @@ import {
   IconPlayArrow,
   IconClockCircle,
   IconSave,
-  IconImport,
-  IconDownload,
+  IconToBottom,
+  IconToTop,
   IconPause,
   IconEye
 } from '@arco-design/web-vue/es/icon';
@@ -466,11 +466,11 @@ onMounted(() => {
           新建任务
         </a-button>
         <a-button type="outline" status="success" @click="handleImport">
-          <template #icon><icon-import /></template>
+          <template #icon><icon-to-bottom /></template>
           导入任务
         </a-button>
         <a-button type="outline" @click="handleExport">
-          <template #icon><icon-download /></template>
+          <template #icon><icon-to-top /></template>
           导出任务
         </a-button>
         <a-button type="outline" status="danger" @click="handleClearAll" v-if="tasks.length > 0">
@@ -643,7 +643,7 @@ onMounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 10px;
 }
 
 .toolbar {

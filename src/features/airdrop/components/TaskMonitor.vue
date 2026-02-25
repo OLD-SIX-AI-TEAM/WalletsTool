@@ -436,14 +436,14 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 10px;
 }
 
 /* 统计概览 */
 .stats-overview {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 15px;
+  gap: 10px;
 }
 
 .stat-card {
@@ -493,7 +493,7 @@ onUnmounted(() => {
 .monitor-content {
   flex: 1;
   display: flex;
-  gap: 15px;
+  gap: 10px;
   min-height: 0;
 }
 
@@ -687,7 +687,7 @@ onUnmounted(() => {
 }
 
 .detail-section {
-  margin-bottom: 20px;
+  margin-bottom: 10px;
 }
 
 .section-title {
@@ -778,6 +778,6 @@ onUnmounted(() => {
   background: var(--color-bg-2);
   border-radius: 8px;
   border: 2px dashed var(--color-border);
-  gap: 15px;
+  gap: 10px;
 }
 </style>

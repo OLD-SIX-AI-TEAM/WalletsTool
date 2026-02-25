@@ -1,16 +1,6 @@
 import {defineStore} from 'pinia'
 import {ref, watch} from "vue"
 
-export const confettiStore = defineStore('confetti', () => {
-    const status = ref(true)
-
-    function changeStatus(value) {
-        status.value = value
-    }
-
-    return {status, changeStatus}
-})
-
 // 主题管理store
 export const useThemeStore = defineStore('theme', () => {
     // 从localStorage获取初始主题，默认为明亮主题

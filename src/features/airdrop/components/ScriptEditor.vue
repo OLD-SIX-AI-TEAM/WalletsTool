@@ -1,4 +1,4 @@
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, nextTick, watch } from 'vue';
 import { Message, Modal } from '@arco-design/web-vue';
 import {
@@ -11,15 +11,17 @@ import {
   IconBook,
   IconFullscreen,
   IconFullscreenExit,
-  IconImport,
-  IconDownload,
+  IconToBottom,
+  IconToTop,
   IconCopy,
   IconCheck,
-  IconRecord
+  IconRecord,
+  IconClose
 } from '@arco-design/web-vue/es/icon';
 import ApiHelper from './ApiHelper.vue';
 import ScriptRecorder from './ScriptRecorder.vue';
-import { scriptService, executionSessionService } from '../services/browserAutomationService';
+import { scriptService, walletService, profileService } from '../services/browserAutomationService';
+import { ScriptExecutor } from '../services/scriptExecutor';
 
 const scripts = ref([]);
 
@@ -31,6 +33,10 @@ const showApiHelper = ref(true);
 const isFullscreen = ref(false);
 const copiedCode = ref(false);
 const loading = ref(false);
+const executing = ref(false);
+const executionLogs = ref<any[]>([]);
+const executionStatus = ref<any>(null);
+const showExecutionPanel = ref(false);
 
 const editingScriptId = ref(null);
 const editNameInput = ref(null);
@@ -130,9 +136,156 @@ const handleSave = async () => {
 };
 
 const handleRun = async () => {
-  if (!activeScript.value) return;
-  
-  Message.info('请切换到"执行面板"选择钱包后执行脚本');
+  if (!activeScript.value) {
+    Message.warning('请先选择要运行的脚本');
+    return;
+  }
+
+  if (executing.value) {
+    Message.warning('已有执行中的任务，请先停止');
+    return;
+  }
+
+  try {
+    // 加载钱包列表
+    const wallets = await walletService.getWallets();
+    if (wallets.length === 0) {
+      Message.warning('暂无钱包，请先在"钱包管理"中添加钱包');
+      return;
+    }
+
+    // 加载环境配置
+    const profiles = await profileService.getProfiles();
+    const profile = profiles.length > 0 ? profiles[0] : null;
+
+    // 使用第一个钱包进行测试运行
+    const testWallet = wallets[0];
+
+    // 重置执行状态
+    executing.value = true;
+    executionLogs.value = [];
+    executionStatus.value = null;
+    showExecutionPanel.value = true;
+
+    Message.loading('正在启动测试运行...');
+
+    // 构建浏览器配置
+    const browserConfig = profile ? {
+      userAgent: profile.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      viewportWidth: profile.viewportWidth || 1920,
+      viewportHeight: profile.viewportHeight || 1080,
+      deviceScaleFactor: profile.deviceScaleFactor || 1,
+      locale: profile.locale || 'en-US',
+      timezoneId: profile.timezoneId || 'America/New_York',
+      proxyType: profile.proxyType || 'direct',
+      proxyHost: profile.proxyHost,
+      proxyPort: profile.proxyPort,
+      proxyUsername: profile.proxyUsername,
+      proxyPassword: profile.proxyPassword,
+      canvasSpoof: profile.canvasSpoof !== false,
+      webglSpoof: profile.webglSpoof !== false,
+      audioSpoof: profile.audioSpoof !== false,
+      timezoneSpoof: profile.timezoneSpoof !== false,
+      geolocationSpoof: profile.geolocationSpoof !== false,
+      fontSpoof: profile.fontSpoof !== false,
+      webrtcSpoof: profile.webrtcSpoof !== false,
+      navigatorOverride: profile.navigatorOverride !== false,
+      webdriverOverride: profile.webdriverOverride !== false,
+      headless: false
+    } : {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      viewportWidth: 1920,
+      viewportHeight: 1080,
+      deviceScaleFactor: 1,
+      locale: 'en-US',
+      timezoneId: 'America/New_York',
+      proxyType: 'direct',
+      canvasSpoof: true,
+      webglSpoof: true,
+      audioSpoof: true,
+      timezoneSpoof: true,
+      geolocationSpoof: true,
+      fontSpoof: true,
+      webrtcSpoof: true,
+      navigatorOverride: true,
+      webdriverOverride: true,
+      headless: false
+    };
+
+    // 构建执行配置
+    const config = {
+      targetUrl: profile?.targetUrl || 'https://example.com',
+      config: browserConfig,
+      userCode: scriptContent.value,
+      wallets: [{
+        id: testWallet.id?.toString() || '1',
+        name: testWallet.name || 'Test Wallet',
+        address: testWallet.address,
+        privateKey: '', // 将在后端解密
+        chainType: testWallet.chainType || 'ethereum'
+      }],
+      concurrency: 1,
+      timeoutSecs: 300
+    };
+
+    // 使用新的执行器
+    const executor = new ScriptExecutor();
+
+    // 创建会话
+    await executor.createSession(config);
+
+    // 订阅日志
+    await executor.subscribeLogs((log: any) => {
+      executionLogs.value.push(log);
+      // 限制日志数量，避免内存溢出
+      if (executionLogs.value.length > 1000) {
+        executionLogs.value = executionLogs.value.slice(-500);
+      }
+    });
+
+    // 启动执行
+    await executor.startExecution(
+      (status: any) => {
+        executionStatus.value = status;
+      },
+      (success: boolean, error?: string) => {
+        executing.value = false;
+        if (success) {
+          Message.success('测试运行完成');
+        } else {
+          Message.error('测试运行失败: ' + (error || '未知错误'));
+        }
+        // 清理资源
+        executor.cleanup().catch(console.error);
+      },
+      1000
+    );
+
+    Message.success(`测试运行已启动，使用钱包: ${testWallet.name || testWallet.address.slice(0, 8)}...`);
+
+  } catch (error) {
+    executing.value = false;
+    Message.error('测试运行失败: ' + getErrorMessage(error));
+  }
+};
+
+const handleStopExecution = async () => {
+  if (!executing.value) return;
+
+  try {
+    // 通过全局执行器取消
+    const { getGlobalExecutor } = await import('../services/scriptExecutor');
+    const executor = getGlobalExecutor();
+    await executor.cancel();
+    executing.value = false;
+    Message.success('已停止执行');
+  } catch (error) {
+    Message.error('停止失败: ' + getErrorMessage(error));
+  }
+};
+
+const clearExecutionLogs = () => {
+  executionLogs.value = [];
 };
 
 const handleNewScript = () => {
@@ -147,19 +300,52 @@ const confirmNewScript = async () => {
   }
 
   const defaultContent = `// ${newScriptName.value.trim()}
-// 依赖API: waitForSelector, clickElement, randomDelay, log
+// 自定义 visitPage 逻辑
+// 
+// 可用参数通过 context 对象传入：
+//   - manager: BrowserManager 实例 { browser, context, page, browserIndex }
+//   - url: 目标 URL
+//   - visitIndex: 当前访问序号
+//   - totalVisits: 总访问次数
+//   - wallet: 当前钱包信息 { name, address, private_key, chain_type }
+//   - api: 工具 API 对象
+//
+// API 方法：
+//   - api.log(level, message): 输出日志 (level: 'info' | 'warn' | 'error' | 'success')
+//   - api.randomDelay(min, max): 随机延迟（毫秒）
+//   - api.sleep(ms): 固定延迟（毫秒）
+//   - api.humanLikeClick(page, selector): 模拟人类点击
+//   - api.humanLikeScroll(page, options): 模拟人类滚动
+//   - api.humanLikeMouseMove(page, x, y): 模拟人类鼠标移动
+//
+// Playwright page 方法：
+//   - page.goto(url, options): 访问页面
+//   - page.click(selector): 点击元素
+//   - page.fill(selector, text): 填写输入框
+//   - page.waitForSelector(selector): 等待元素出现
+//   - page.evaluate(fn): 在页面中执行 JavaScript
 
-async function run({ page, wallet, api }) {
-    api.log('info', '开始执行脚本');
-    
-    // 在此编写你的脚本逻辑
-    // 示例:
-    // await page.goto('https://example.com');
-    // await api.waitForSelector('.button');
-    // await api.clickElement('.button');
-    
-    api.log('success', '脚本执行完成');
-    return { success: true };
+async function visitPage({ manager, url, visitIndex, totalVisits, wallet, api }) {
+  const { page, browserIndex } = manager;
+  
+  api.log('info', \`[\${browserIndex}] 钱包 \${wallet.name} 开始访问 \${url}\`);
+  
+  // 访问页面
+  await page.goto(url, {
+    waitUntil: 'domcontentloaded',
+    timeout: 60000
+  });
+  
+  // 等待页面加载
+  await api.randomDelay(2000, 4000);
+  
+  // TODO: 在此添加您的自定义操作
+  // 示例：
+  // await api.humanLikeClick(page, '.claim-button');
+  // await api.sleep(3000);
+  
+  api.log('success', '执行完成');
+  return { success: true };
 }`;
 
   try {
@@ -256,6 +442,25 @@ const handleInsertCode = (code) => {
   }
 };
 
+// 处理录制脚本保存成功
+const handleScriptSaved = (script) => {
+  // 刷新脚本列表
+  loadScripts();
+  Message.success(`脚本 "${script.name}" 已保存到数据库`);
+};
+
+// 处理录制脚本更新成功
+const handleScriptUpdated = (script) => {
+  // 更新当前脚本内容
+  if (activeScript.value && activeScript.value.id === script.id) {
+    activeScript.value.content = script.content;
+    scriptContent.value = script.content;
+  }
+  // 刷新脚本列表
+  loadScripts();
+  Message.success(`脚本 "${script.name}" 已更新`);
+};
+
 const toggleFullscreen = () => {
   isFullscreen.value = !isFullscreen.value;
 };
@@ -289,10 +494,10 @@ onMounted(() => {
       <div class="list-header">
         <h3>脚本列表</h3>
         <a-space>
-          <a-button type="text" size="small" @click="handleImportScript" title="导入脚本">
-            <template #icon><icon-import /></template>
+          <a-button type="secondary" size="small" @click="handleImportScript" title="导入脚本">
+            <template #icon><icon-to-bottom /></template>
           </a-button>
-          <a-button type="primary" size="small" @click="handleNewScript">
+          <a-button type="primary" size="small" @click="handleNewScript" title="创建新脚本" style="margin-left: 10px;">
             <template #icon><icon-plus /></template>
           </a-button>
         </a-space>
@@ -359,7 +564,7 @@ onMounted(() => {
             </a-tooltip>
             <a-tooltip content="导出脚本">
               <a-button type="text" size="small" @click="handleExportScript">
-                <template #icon><icon-download /></template>
+                <template #icon><icon-to-top /></template>
               </a-button>
             </a-tooltip>
             <a-tooltip content="复制代码">
@@ -367,9 +572,25 @@ onMounted(() => {
                 <template #icon><icon-check v-if="copiedCode" /><icon-copy v-else /></template>
               </a-button>
             </a-tooltip>
-            <a-button type="secondary" size="small" @click="handleRun">
+            <a-button
+              v-if="!executing"
+              type="secondary"
+              size="small"
+              @click="handleRun"
+            >
               <template #icon><icon-play-arrow /></template>
               测试运行
+            </a-button>
+            <a-button
+              v-else
+              type="primary"
+              status="danger"
+              size="small"
+              @click="handleStopExecution"
+              :loading="executing"
+            >
+              <template #icon><icon-record /></template>
+              停止执行
             </a-button>
             <a-button type="primary" size="small" @click="handleSave">
               <template #icon><icon-save /></template>
@@ -397,7 +618,58 @@ onMounted(() => {
 
     <div class="tool-panel" v-if="activeToolTab && !isFullscreen && activeScript">
       <ApiHelper v-if="activeToolTab === 'api'" @insert-code="handleInsertCode" />
-      <ScriptRecorder v-if="activeToolTab === 'recorder'" @insert-code="handleInsertCode" @close="activeToolTab = null" />
+      <ScriptRecorder v-if="activeToolTab === 'recorder'" :current-script="activeScript" @insert-code="handleInsertCode" @close="activeToolTab = null" @script-saved="handleScriptSaved" @script-updated="handleScriptUpdated" />
+    </div>
+
+    <!-- 执行面板 -->
+    <div class="execution-panel" v-if="showExecutionPanel && !isFullscreen">
+      <div class="execution-header">
+        <div class="execution-title">
+          <span>执行日志</span>
+          <a-tag v-if="executing" color="blue" size="small">运行中</a-tag>
+          <a-tag v-else-if="executionStatus?.status === 'completed'" color="green" size="small">已完成</a-tag>
+          <a-tag v-else-if="executionStatus?.status === 'cancelled'" color="orange" size="small">已取消</a-tag>
+        </div>
+        <div class="execution-actions">
+          <a-button type="text" size="mini" @click="clearExecutionLogs">
+            <template #icon><icon-delete /></template>
+          </a-button>
+          <a-button type="text" size="mini" @click="showExecutionPanel = false">
+            <icon-close />
+          </a-button>
+        </div>
+      </div>
+
+      <div class="execution-progress" v-if="executionStatus">
+        <div class="progress-stats">
+          <span>总任务: {{ executionStatus.totalWallets }}</span>
+          <span class="success">成功: {{ executionStatus.completedWallets }}</span>
+          <span class="error">失败: {{ executionStatus.failedWallets }}</span>
+          <span class="running" v-if="executionStatus.runningWallets > 0">运行中: {{ executionStatus.runningWallets }}</span>
+        </div>
+        <a-progress
+          :percent="Math.round(((executionStatus.completedWallets + executionStatus.failedWallets) / executionStatus.totalWallets) * 100)"
+          :status="executing ? 'normal' : 'success'"
+          size="small"
+        />
+      </div>
+
+      <div class="execution-logs" ref="logContainer">
+        <div
+          v-for="(log, index) in executionLogs"
+          :key="index"
+          class="log-item"
+          :class="log.level"
+        >
+          <span class="log-time">{{ new Date(log.timestamp).toLocaleTimeString() }}</span>
+          <span class="log-level" :class="log.level">[{{ log.level.toUpperCase() }}]</span>
+          <span class="log-wallet" v-if="log.walletId">[{{ log.walletId.slice(0, 8) }}]</span>
+          <span class="log-message">{{ log.message }}</span>
+        </div>
+        <div v-if="executionLogs.length === 0" class="empty-logs">
+          暂无日志，等待执行开始...
+        </div>
+      </div>
     </div>
 
     <div class="empty-state" v-if="!activeScript">
@@ -422,7 +694,7 @@ onMounted(() => {
 .script-editor {
   height: 100%;
   display: flex;
-  gap: 20px;
+  gap: 10px;
 }
 
 .script-editor.fullscreen {
@@ -643,6 +915,127 @@ onMounted(() => {
   background: var(--color-bg-2);
   border-radius: 8px;
   border: 2px dashed var(--color-border);
-  gap: 15px;
+  gap: 10px;
+}
+
+/* 执行面板样式 */
+.execution-panel {
+  width: 400px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-2);
+  display: flex;
+  flex-direction: column;
+}
+
+.execution-header {
+  padding: 12px 15px;
+  background: var(--color-bg-3);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.execution-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.execution-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.execution-progress {
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-1);
+}
+
+.progress-stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--color-text-3);
+}
+
+.progress-stats .success {
+  color: rgb(var(--success-6));
+}
+
+.progress-stats .error {
+  color: rgb(var(--danger-6));
+}
+
+.progress-stats .running {
+  color: rgb(var(--primary-6));
+}
+
+.execution-logs {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--color-bg-1);
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-item {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--color-border-2);
+  word-break: break-all;
+}
+
+.log-item:last-child {
+  border-bottom: none;
+}
+
+.log-time {
+  color: var(--color-text-4);
+  margin-right: 8px;
+}
+
+.log-level {
+  font-weight: 500;
+  margin-right: 8px;
+}
+
+.log-level.info {
+  color: rgb(var(--primary-6));
+}
+
+.log-level.success {
+  color: rgb(var(--success-6));
+}
+
+.log-level.warn {
+  color: rgb(var(--warning-6));
+}
+
+.log-level.error {
+  color: rgb(var(--danger-6));
+}
+
+.log-wallet {
+  color: var(--color-text-3);
+  margin-right: 8px;
+}
+
+.log-message {
+  color: var(--color-text-2);
+}
+
+.empty-logs {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--color-text-4);
+  font-style: italic;
 }
 </style>

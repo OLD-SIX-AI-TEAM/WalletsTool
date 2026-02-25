@@ -26,7 +26,7 @@
         "minWidth": 480,
         "minHeight": 90,
         "maximized": false,
-        "visible": true,
+        "visible": false,
         "focus": true,
         "url": "/"
       }

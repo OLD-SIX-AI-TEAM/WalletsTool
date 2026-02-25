@@ -9,8 +9,8 @@ import {
   IconEdit,
   IconRobot,
   IconDelete,
-  IconArrowDown,
-  IconArrowUp
+  IconToBottom,
+  IconToTop
 } from '@arco-design/web-vue/es/icon';
 import { profileService, initBrowserAutomationTables } from '../services/browserAutomationService';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -313,11 +313,11 @@ onMounted(async () => {
             批量生成
           </a-button>
           <div class="action-group">
-            <a-button type="text" size="small" @click="handleImport" title="导入">
-              <template #icon><icon-arrow-down /></template>
+            <a-button type="secondary" size="small" @click="handleImport" title="导入">
+              <template #icon><icon-to-bottom /></template>
             </a-button>
-            <a-button type="text" size="small" @click="handleExport" title="导出">
-              <template #icon><icon-arrow-up /></template>
+            <a-button type="secondary" size="small" @click="handleExport" title="导出">
+              <template #icon><icon-to-top /></template>
             </a-button>
           </div>
         </div>
@@ -535,7 +535,7 @@ onMounted(async () => {
 .browser-farm {
   height: 100%;
   display: flex;
-  gap: 20px;
+  gap: 10px;
 }
 
 .profile-list {
@@ -729,7 +729,7 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: 10px;
   padding-bottom: 15px;
   border-bottom: 1px solid var(--color-border);
 }
@@ -785,8 +785,8 @@ onMounted(async () => {
 .fingerprint-switches {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .switch-item {
@@ -813,6 +813,6 @@ onMounted(async () => {
 .advanced-options {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 16px;
+  gap: 10px;
 }
 </style>

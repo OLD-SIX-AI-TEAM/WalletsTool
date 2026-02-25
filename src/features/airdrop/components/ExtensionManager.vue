@@ -10,7 +10,7 @@ import {
   IconClose,
   IconSettings,
   IconExport,
-  IconImport
+  IconToBottom
 } from '@arco-design/web-vue/es/icon';
 import { extensionService } from '../services/extensionService';
 import { initBrowserAutomationTables } from '../services/browserAutomationService';
@@ -286,7 +286,7 @@ onMounted(async () => {
               @click="handleImportAll"
               v-if="scanResults.some(r => r.hasManifest)"
             >
-              <template #icon><icon-import /></template>
+              <template #icon><icon-to-bottom /></template>
               全部导入
             </a-button>
           </div>
@@ -332,7 +332,7 @@ onMounted(async () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
 }
 
 .extension-list {

@@ -226,6 +226,15 @@ export const walletService = {
     return await invoke('get_airdrop_wallets');
   },
 
+  async getWallet(id: number): Promise<AirdropWallet | null> {
+    const wallets = await this.getWallets();
+    return wallets.find(w => w.id === id) || null;
+  },
+
+  async getWalletPrivateKey(id: number): Promise<string> {
+    return await invoke('get_wallet_private_key', { id });
+  },
+
   async createWallet(request: CreateWalletRequest): Promise<AirdropWallet> {
     return await invoke('create_airdrop_wallet', { request });
   },
@@ -256,6 +265,11 @@ export const profileService = {
     return await invoke('get_browser_profiles');
   },
 
+  async getProfile(id: number): Promise<BrowserProfile | null> {
+    const profiles = await this.getProfiles();
+    return profiles.find(p => p.id === id) || null;
+  },
+
   async createProfile(request: CreateProfileRequest): Promise<BrowserProfile> {
     return await invoke('create_browser_profile', { request });
   },
@@ -279,6 +293,11 @@ export const profileService = {
 export const scriptService = {
   async getScripts(): Promise<AutomationScript[]> {
     return await invoke('get_automation_scripts');
+  },
+
+  async getScript(id: number): Promise<AutomationScript | null> {
+    const scripts = await this.getScripts();
+    return scripts.find(s => s.id === id) || null;
   },
 
   async createScript(request: CreateScriptRequest): Promise<AutomationScript> {

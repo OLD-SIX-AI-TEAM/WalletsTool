@@ -4,8 +4,8 @@ import { Message, Modal } from '@arco-design/web-vue';
 import { invoke } from '@tauri-apps/api/core';
 import { 
   IconPlus, 
-  IconImport, 
-  IconDownload, 
+  IconToBottom, 
+  IconToTop, 
   IconDelete,
   IconSync,
   IconSearch,
@@ -422,7 +422,7 @@ onMounted(async () => {
   }
   // 检查钱包数据库是否已初始化
   try {
-    walletDbReady.value = await invoke('is_wallet_db_ready');
+    walletDbReady.value = await invoke('is_wallet_manager_ready');
   } catch (e) {
     walletDbReady.value = false;
   }
@@ -445,11 +445,11 @@ onMounted(async () => {
           从系统同步
         </a-button>
         <a-button type="outline" status="success" @click="handleImport">
-          <template #icon><icon-import /></template>
+          <template #icon><icon-to-bottom /></template>
           导入 (Excel)
         </a-button>
         <a-button type="outline" @click="handleExport">
-          <template #icon><icon-download /></template>
+          <template #icon><icon-to-top /></template>
           导出配置
         </a-button>
         <a-button type="outline" status="danger" @click="handleClearAll" v-if="wallets.length > 0">
@@ -596,7 +596,7 @@ onMounted(async () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 10px;
 }
 
 .toolbar {
@@ -617,7 +617,7 @@ onMounted(async () => {
 
 .stats-bar {
   display: flex;
-  gap: 20px;
+  gap: 10px;
   padding: 8px 12px;
   background: var(--color-fill-2);
   border-radius: 6px;

@@ -1,7 +1,9 @@
-<script setup>
+<script setup lang="ts">
 import { ref, shallowRef, onMounted, nextTick, defineAsyncComponent, computed } from 'vue';
 import { useThemeStore } from '../../../stores';
+import { Message, Modal } from '@arco-design/web-vue';
 import WalletManager from '../components/WalletManager.vue';
+import EnvCheckOverlay from '../components/EnvCheckOverlay.vue';
 import {
   IconSafe,
   IconComputer,
@@ -12,11 +14,23 @@ import {
   IconSchedule,
   IconPushpin,
   IconApps,
-  IconMinus
+  IconMinus,
+  IconExpand,
+  IconShrink
 } from '@arco-design/web-vue/es/icon';
+import { cliCheckService, type CliToolStatus } from '../services/cliCheckService';
 
 const themeStore = useThemeStore();
 const isDarkTheme = computed(() => themeStore.currentTheme === 'dark');
+
+// CLI 工具检查状态
+const cliCheckLoading = ref(false);
+const cliCheckResult = ref<CliToolStatus[]>([]);
+const showCliCheckModal = ref(false);
+
+// 环境检查状态
+const isEnvReady = ref(false);
+const envCheckFailed = ref(false);
 
 const BrowserFarm = defineAsyncComponent(() => import('../components/BrowserFarm.vue'));
 const ScriptEditor = defineAsyncComponent(() => import('../components/ScriptEditor.vue'));
@@ -51,9 +65,57 @@ const activeTab = ref('wallets');
 const currentComponent = shallowRef(WalletManager);
 const isExpanded = ref(true);
 const isPinned = ref(true);
+const isMaximized = ref(false);
 
 onMounted(async () => {
+  // 环境检查由 EnvCheckOverlay 组件处理
+  // 页面加载时检查 CLI 工具（仅用于显示状态）
+  await checkCliTools();
 });
+
+// 环境检查通过
+const handleEnvReady = () => {
+  // 延迟2秒后关闭遮罩层，让用户看到检查结果
+  setTimeout(() => {
+    isEnvReady.value = true;
+    envCheckFailed.value = false;
+  }, 1000);
+};
+
+// 环境检查失败
+const handleEnvFailed = (tools: CliToolStatus[]) => {
+  isEnvReady.value = false;
+  envCheckFailed.value = true;
+  Message.error('环境安装失败，请手动安装所需工具');
+};
+
+// 检查 CLI 工具
+const checkCliTools = async () => {
+  cliCheckLoading.value = true;
+  try {
+    const result = await cliCheckService.checkTools();
+    cliCheckResult.value = result.tools;
+
+    // 如果有未安装的工具，显示提示
+    const missingTools = result.tools.filter(t => !t.installed && t.name !== 'Playwright');
+    if (missingTools.length > 0) {
+      const toolNames = missingTools.map(t => t.name).join('、');
+      const instructions = cliCheckService.getInstallInstructions(missingTools);
+
+      Modal.warning({
+        title: '缺少必要的 CLI 工具',
+        content: `检测到以下工具未安装：${toolNames}\n\n${instructions}`,
+        okText: '我知道了',
+        width: 600,
+      });
+    }
+  } catch (error) {
+    console.error('检查 CLI 工具失败:', error);
+    Message.error('检查 CLI 工具失败，请确保系统环境正常');
+  } finally {
+    cliCheckLoading.value = false;
+  }
+};
 
 const handleNavClick = (item) => {
   activeTab.value = item.id;
@@ -93,10 +155,28 @@ const minimizeWindow = async () => {
   }
 };
 
+const toggleMaximize = async () => {
+  if (appWindow) {
+    if (isMaximized.value) {
+      await appWindow.unmaximize();
+    } else {
+      await appWindow.maximize();
+    }
+    isMaximized.value = !isMaximized.value;
+  }
+};
+
 </script>
 
 <template>
   <div class="browser-automation-layout" :class="{ 'light-theme': !isDarkTheme }">
+    <!-- 环境检查遮罩层 -->
+    <EnvCheckOverlay 
+      v-if="!isEnvReady"
+      @ready="handleEnvReady"
+      @failed="handleEnvFailed"
+    />
+    
     <div class="layout-body">
       <!-- Sidebar Container -->
       <div class="sidebar-container" :class="{ expanded: isExpanded }">
@@ -116,6 +196,9 @@ const minimizeWindow = async () => {
           </div>
 
           <div class="sidebar-footer-collapsed">
+            <div class="nav-item-collapsed maximize-btn" @click="toggleMaximize" :title="isMaximized ? '还原' : '最大化'">
+              <component :is="isMaximized ? IconShrink : IconExpand" class="nav-icon-collapsed" />
+            </div>
             <div class="nav-item-collapsed minimize-btn" @click="minimizeWindow" title="最小化">
               <IconMinus class="nav-icon-collapsed" />
             </div>
@@ -152,6 +235,10 @@ const minimizeWindow = async () => {
           </div>
 
           <div class="sidebar-footer-expanded">
+            <div class="nav-item-expanded maximize-btn" @click="toggleMaximize">
+              <component :is="isMaximized ? IconShrink : IconExpand" class="nav-icon-expanded" />
+              <span class="nav-label-expanded">{{ isMaximized ? '还原' : '最大化' }}</span>
+            </div>
             <div class="nav-item-expanded minimize-btn" @click="minimizeWindow">
               <IconMinus class="nav-icon-expanded" />
               <span class="nav-label-expanded">最小化</span>
@@ -166,7 +253,7 @@ const minimizeWindow = async () => {
 
       <!-- Main Content -->
       <div class="main-content">
-        <header class="content-header">
+        <header class="content-header" data-tauri-drag-region>
           <h2>{{ menuItems.find(i => i.id === activeTab)?.label }}</h2>
         </header>
         
@@ -382,6 +469,11 @@ const minimizeWindow = async () => {
   background: rgba(var(--primary-6), 0.1);
 }
 
+.maximize-btn:hover {
+  color: rgb(var(--success-6));
+  background: rgba(var(--success-6), 0.1);
+}
+
 /* Main Content */
 .main-content {
   flex: 1;
@@ -392,7 +484,7 @@ const minimizeWindow = async () => {
 }
 
 .content-header {
-  height: 60px;
+  height: 44px;
   padding: 0 24px;
   border-bottom: 1px solid var(--color-border);
   display: flex;
@@ -409,7 +501,7 @@ const minimizeWindow = async () => {
 
 .content-body {
   flex: 1;
-  padding: 20px 24px;
+  padding: 10px;
   overflow: hidden;
 }
 
@@ -473,6 +565,11 @@ const minimizeWindow = async () => {
 .light-theme .minimize-btn:hover {
   background: rgba(88, 108, 199, 0.1);
   color: #586cc7;
+}
+
+.light-theme .maximize-btn:hover {
+  background: rgba(82, 196, 26, 0.1);
+  color: #52c41a;
 }
 
 .light-theme .main-content {

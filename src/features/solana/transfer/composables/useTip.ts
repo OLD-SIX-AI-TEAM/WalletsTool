@@ -3,7 +3,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { ethers } from 'ethers';
 import QRCode from 'qrcode';
 import { Notification } from '@arco-design/web-vue';
-import * as party from 'party-js';
 import { debounce as customDebounce } from '@/utils/debounce.js';
 
 export function useTip(options = {}) {
@@ -66,29 +65,6 @@ export function useTip(options = {}) {
   }
 
   function triggerCelebration() {
-    try {
-      party.confetti(document.body, {
-        count: party.variation.range(40, 100),
-        spread: party.variation.range(50, 100),
-      });
-
-      setTimeout(() => {
-        party.sparkles(document.body, {
-          count: party.variation.range(20, 40),
-        });
-      }, 500);
-
-      const executeButton = document.querySelector('.execute-btn');
-      if (executeButton) {
-        party.confetti(executeButton, {
-          count: party.variation.range(20, 40),
-          spread: party.variation.range(30, 60),
-        });
-      }
-    } catch (error) {
-      console.log('Party.js庆祝效果加载失败:', error);
-    }
-
     showCelebration.value = true;
 
     setTimeout(() => {
@@ -355,14 +331,6 @@ export function useTip(options = {}) {
             duration: 5000,
             position: 'topLeft',
           });
-
-          try {
-            party.sparkles(document.body, {
-              count: party.variation.range(10, 20),
-            });
-          } catch (error) {
-            console.log('打赏庆祝效果加载失败:', error);
-          }
         } else {
           throw new Error(result.error || '打赏失败');
         }

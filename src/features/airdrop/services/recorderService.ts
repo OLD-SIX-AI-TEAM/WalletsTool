@@ -1,4 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
+import { ref, shallowRef } from 'vue';
+
+export const recordingSession = shallowRef<RecordingSession | null>(null);
+export const recordingActions = ref<RecordedAction[]>([]);
 
 export interface RecordingSession {
   id: string;
@@ -16,6 +20,14 @@ export interface RecordedAction {
   description: string;
 }
 
+export interface ProxyConfig {
+  type: 'direct' | 'http' | 'https' | 'socks5';
+  host?: string;
+  port?: number;
+  username?: string;
+  password?: string;
+}
+
 export interface RecordingOptions {
   browserType?: 'chromium' | 'firefox' | 'webkit';
   headless?: boolean;
@@ -23,67 +35,154 @@ export interface RecordingOptions {
   viewportHeight?: number;
   includeComments?: boolean;
   extensions?: string[];
+  proxy?: ProxyConfig;
+}
+
+// 后端返回的会话类型
+interface BackendRecordingSession {
+  id: string;
+  url: string;
+  start_time: number;
+  actions: BackendRecordedAction[];
+  status: string;
+  generated_code?: string;
+}
+
+interface BackendRecordedAction {
+  action_type: string;
+  selector?: string;
+  value?: string;
+  timestamp: number;
+  description: string;
 }
 
 class PlaywrightRecorderBridge {
   private currentSession: RecordingSession | null = null;
   private sessionId: string | null = null;
   private currentExtensions: string[] = [];
+  private currentProxy: ProxyConfig | null = null;
+  private pollInterval: ReturnType<typeof setInterval> | null = null;
 
   async startSession(url: string, options: RecordingOptions = {}): Promise<RecordingSession> {
+    // 先停止之前的轮询
+    this.stopPolling();
+    
+    // 清空之前的会话数据
+    this.currentSession = null;
+    this.sessionId = null;
+    recordingSession.value = null;
+    recordingActions.value = [];
+    
     const {
       browserType = 'chromium',
       headless = false,
       viewportWidth = 1280,
       viewportHeight = 720,
-      includeComments = true,
-      extensions = []
+      proxy
     } = options;
 
-    this.currentExtensions = extensions;
-    this.currentSession = {
-      id: `session-${Date.now()}`,
-      url,
-      startTime: new Date(),
-      actions: [],
-      status: 'recording'
-    };
+    this.currentExtensions = options.extensions || [];
+    this.currentProxy = proxy || null;
 
     try {
-      if (typeof window !== 'undefined' && (window as any).__MCP_PLAYWRIGHT__) {
-        const mcp = (window as any).__MCP_PLAYWRIGHT__;
-        
-        await mcp.playwright_navigate({
+      console.log('[Recorder] 开始录制会话...');
+      console.log('[Recorder] URL:', url);
+      console.log('[Recorder] 浏览器:', browserType);
+      console.log('[Recorder] 代理:', proxy);
+
+      // 调用后端 Tauri 命令
+      const sessionId = await invoke<string>('playwright_start_recording', {
+        options: {
           url,
-          browserType,
+          browser_type: browserType,
           headless,
-          width: viewportWidth,
-          height: viewportHeight
-        });
-
-        const result = await mcp.start_codegen_session({
-          options: {
-            outputPath: '',
-            testNamePrefix: 'RecordedScript',
-            includeComments
-          }
-        });
-
-        if (result && result.sessionId) {
-          this.sessionId = result.sessionId;
+          viewport_width: viewportWidth,
+          viewport_height: viewportHeight,
+          proxy_type: proxy?.type,
+          proxy_host: proxy?.host,
+          proxy_port: proxy?.port,
+          proxy_username: proxy?.username,
+          proxy_password: proxy?.password
         }
+      });
 
-        this.addAction('navigate', `导航到 ${url}`, { url });
-        
-        if (extensions.length > 0) {
-          this.addAction('evaluate', `已加载 ${extensions.length} 个浏览器插件`, {});
-        }
-      }
+      console.log('[Recorder] 会话创建成功:', sessionId);
+
+      this.sessionId = sessionId;
+      this.currentSession = {
+        id: sessionId,
+        url,
+        startTime: new Date(),
+        actions: [{
+          type: 'navigate',
+          value: url,
+          timestamp: new Date(),
+          description: `导航到 ${url}`
+        }],
+        status: 'recording'
+      };
+
+      recordingSession.value = this.currentSession;
+      recordingActions.value = this.currentSession.actions;
+
+      // 启动轮询获取操作记录
+      this.startPolling(sessionId);
 
       return this.currentSession;
     } catch (error) {
-      this.currentSession.status = 'error';
+      console.error('[Recorder] 启动录制失败:', error);
       throw error;
+    }
+  }
+
+  private startPolling(sessionId: string): void {
+    this.pollInterval = setInterval(async () => {
+      // 检查会话ID是否匹配，防止旧轮询更新错误的数据
+      if (this.sessionId !== sessionId) {
+        console.log('[Recorder] 会话ID不匹配，停止轮询');
+        this.stopPolling();
+        return;
+      }
+      
+      try {
+        const session = await invoke<BackendRecordingSession | null>('playwright_get_recording_session', {
+          sessionId
+        });
+
+        if (session && this.currentSession) {
+          // 更新操作列表
+          this.currentSession.actions = session.actions.map(action => ({
+            type: action.action_type as RecordedAction['type'],
+            selector: action.selector,
+            value: action.value,
+            timestamp: new Date(action.timestamp),
+            description: action.description
+          }));
+
+          recordingActions.value = this.currentSession.actions;
+
+          // 如果会话已停止，停止轮询
+          if (session.status === 'stopped') {
+            this.stopPolling();
+            this.currentSession.status = 'stopped';
+          }
+        }
+      } catch (error) {
+        console.error('[Recorder] 轮询会话失败:', error);
+      }
+    }, 1000);
+
+    // 5分钟后自动停止轮询
+    setTimeout(() => {
+      this.stopPolling();
+    }, 5 * 60 * 1000);
+  }
+  
+  private stopPolling(): void {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+      console.log('[Recorder] 轮询已停止');
     }
   }
 
@@ -93,27 +192,23 @@ class PlaywrightRecorderBridge {
     }
 
     try {
-      let generatedCode = '';
+      console.log('[Recorder] 停止录制会话:', this.sessionId);
+      
+      // 停止轮询
+      this.stopPolling();
 
-      if (typeof window !== 'undefined' && (window as any).__MCP_PLAYWRIGHT__) {
-        const mcp = (window as any).__MCP_PLAYWRIGHT__;
-        
-        const result = await mcp.end_codegen_session({
-          sessionId: this.sessionId
-        });
+      const code = await invoke<string | null>('playwright_stop_recording', {
+        sessionId: this.sessionId
+      });
 
-        if (result && result.code) {
-          generatedCode = this.convertToScriptFormat(result.code);
-        }
-
-        await mcp.playwright_close();
-      }
+      console.log('[Recorder] 录制已停止，生成代码:', code ? '成功' : '无代码');
 
       this.currentSession.status = 'stopped';
       this.sessionId = null;
 
-      return generatedCode;
+      return code;
     } catch (error) {
+      console.error('[Recorder] 停止录制失败:', error);
       this.currentSession.status = 'error';
       throw error;
     }
@@ -139,44 +234,13 @@ class PlaywrightRecorderBridge {
     this.currentSession = null;
     this.sessionId = null;
     this.currentExtensions = [];
+    this.currentProxy = null;
+    recordingSession.value = null;
+    recordingActions.value = [];
   }
 
   getExtensions(): string[] {
     return this.currentExtensions;
-  }
-
-  private convertToScriptFormat(playwrightCode: string): string {
-    let code = playwrightCode;
-    
-    code = code.replace(/const { chromium } = require\('playwright'\);?\n?/g, '');
-    code = code.replace(/\(async \(\) => \{[\s\S]*?try \{[\s\S]*?const browser = await chromium\.launch\([^)]*\);?\n?/g, '');
-    code = code.replace(/const context = await browser\.newContext\([^)]*\);?\n?/g, '');
-    code = code.replace(/const page = await context\.newPage\([^)]*\);?\n?/g, '');
-    code = code.replace(/await browser\.close\(\);?\n?/g, '');
-    code = code.replace(/\} catch[^}]*\}[\s\S]*?\}\)\(\);?/g, '');
-    code = code.replace(/^\s*\n/gm, '');
-
-    const lines = code.split('\n').filter(line => line.trim());
-    const indentedLines = lines.map(line => '    ' + line);
-
-    const actionCount = this.currentSession?.actions.length || 0;
-    const extensionInfo = this.currentExtensions.length > 0 
-      ? `// 加载插件: ${this.currentExtensions.length} 个` 
-      : '';
-
-    return `// 录制生成的脚本
-// 录制时间: ${new Date().toLocaleString()}
-// 操作数量: ${actionCount}
-${extensionInfo}
-
-async function run({ page, wallet, api }) {
-    api.log('info', '开始执行录制脚本');
-    
-${indentedLines.join('\n')}
-    
-    api.log('success', '脚本执行完成');
-    return { success: true };
-}`;
   }
 }
 
