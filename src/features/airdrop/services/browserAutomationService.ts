@@ -68,6 +68,29 @@ export interface BrowserProfile {
   is_default: boolean;
   created_at: string;
   updated_at: string;
+  
+  // 增强指纹字段
+  hardware_concurrency?: number;
+  device_memory?: number;
+  color_depth?: number;
+  languages?: string;
+  vendor?: string;
+  gpu_vendor?: string;
+  gpu_renderer?: string;
+  color_scheme?: string;
+  max_touch_points?: number;
+  has_touch?: boolean;
+  screen_orientation_angle?: number;
+  screen_orientation_type?: string;
+  font_family?: string;
+  client_hints_platform?: string;
+  client_hints_platform_version?: string;
+  client_hints_architecture?: string;
+  client_hints_bitness?: string;
+  client_hints_model?: string;
+  client_hints_wow64?: string;
+  fingerprint_hash?: string;
+  platform_name?: string;
 }
 
 export interface CreateProfileRequest {
@@ -97,6 +120,29 @@ export interface CreateProfileRequest {
   headless?: boolean;
   extensions?: string;
   is_default?: boolean;
+  
+  // 增强指纹字段
+  hardware_concurrency?: number;
+  device_memory?: number;
+  color_depth?: number;
+  languages?: string;
+  vendor?: string;
+  gpu_vendor?: string;
+  gpu_renderer?: string;
+  color_scheme?: string;
+  max_touch_points?: number;
+  has_touch?: boolean;
+  screen_orientation_angle?: number;
+  screen_orientation_type?: string;
+  font_family?: string;
+  client_hints_platform?: string;
+  client_hints_platform_version?: string;
+  client_hints_architecture?: string;
+  client_hints_bitness?: string;
+  client_hints_model?: string;
+  client_hints_wow64?: string;
+  fingerprint_hash?: string;
+  platform_name?: string;
 }
 
 export interface AutomationScript {

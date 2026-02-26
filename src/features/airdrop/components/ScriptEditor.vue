@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch } from 'vue';
+import { ref, onMounted, nextTick, watch, computed } from 'vue';
 import { Message, Modal } from '@arco-design/web-vue';
 import {
   IconPlus,
@@ -33,10 +33,37 @@ const showApiHelper = ref(true);
 const isFullscreen = ref(false);
 const copiedCode = ref(false);
 const loading = ref(false);
-const executing = ref(false);
-const executionLogs = ref<any[]>([]);
-const executionStatus = ref<any>(null);
-const showExecutionPanel = ref(false);
+
+// 每个脚本独立的执行状态
+const scriptExecutionStates = ref<Map<string, {
+  executing: boolean;
+  logs: any[];
+  status: any;
+  showPanel: boolean;
+  executor: ScriptExecutor | null;
+}>>(new Map());
+
+// 当前活跃脚本的执行状态
+const executing = computed(() => {
+  if (!activeScript.value) return false;
+  return scriptExecutionStates.value.get(activeScript.value.id)?.executing ?? false;
+});
+
+const executionLogs = computed(() => {
+  if (!activeScript.value) return [];
+  const logs = scriptExecutionStates.value.get(activeScript.value.id)?.logs;
+  return logs ?? [];
+});
+
+const executionStatus = computed(() => {
+  if (!activeScript.value) return null;
+  return scriptExecutionStates.value.get(activeScript.value.id)?.status ?? null;
+});
+
+const showExecutionPanel = computed(() => {
+  if (!activeScript.value) return false;
+  return scriptExecutionStates.value.get(activeScript.value.id)?.showPanel ?? false;
+});
 
 const editingScriptId = ref(null);
 const editNameInput = ref(null);
@@ -135,41 +162,62 @@ const handleSave = async () => {
   }
 };
 
+// 获取或创建脚本的执行状态
+const getOrCreateExecutionState = (scriptId: string) => {
+  if (!scriptExecutionStates.value.has(scriptId)) {
+    scriptExecutionStates.value.set(scriptId, {
+      executing: false,
+      logs: [],
+      status: null,
+      showPanel: false,
+      executor: null
+    });
+  }
+  return scriptExecutionStates.value.get(scriptId)!;
+};
+
+// 获取当前脚本的执行状态
+const getCurrentExecutionState = () => {
+  if (!activeScript.value) return null;
+  return getOrCreateExecutionState(activeScript.value.id);
+};
+
 const handleRun = async () => {
   if (!activeScript.value) {
     Message.warning('请先选择要运行的脚本');
     return;
   }
 
-  if (executing.value) {
-    Message.warning('已有执行中的任务，请先停止');
+  // 关闭右侧工具面板（包括脚本录制器）
+  activeToolTab.value = null;
+
+  const state = getOrCreateExecutionState(activeScript.value.id);
+
+  if (state.executing) {
+    Message.warning('该脚本正在执行中，请先停止');
     return;
   }
 
   try {
-    // 加载钱包列表
+    // 加载钱包列表（测试运行不强制要求钱包）
     const wallets = await walletService.getWallets();
-    if (wallets.length === 0) {
-      Message.warning('暂无钱包，请先在"钱包管理"中添加钱包');
-      return;
-    }
 
     // 加载环境配置
     const profiles = await profileService.getProfiles();
     const profile = profiles.length > 0 ? profiles[0] : null;
 
-    // 使用第一个钱包进行测试运行
-    const testWallet = wallets[0];
+    // 使用第一个钱包进行测试运行（如果有）
+    const testWallet = wallets.length > 0 ? wallets[0] : null;
 
     // 重置执行状态
-    executing.value = true;
-    executionLogs.value = [];
-    executionStatus.value = null;
-    showExecutionPanel.value = true;
+    state.executing = true;
+    state.logs = [];
+    state.status = null;
+    state.showPanel = true;
 
     Message.loading('正在启动测试运行...');
 
-    // 构建浏览器配置
+    // 构建浏览器配置 (使用 camelCase 与 TypeScript 类型定义一致)
     const browserConfig = profile ? {
       userAgent: profile.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       viewportWidth: profile.viewportWidth || 1920,
@@ -191,7 +239,8 @@ const handleRun = async () => {
       webrtcSpoof: profile.webrtcSpoof !== false,
       navigatorOverride: profile.navigatorOverride !== false,
       webdriverOverride: profile.webdriverOverride !== false,
-      headless: false
+      headless: false,
+      targetUrl: profile?.targetUrl || 'https://example.com'
     } : {
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       viewportWidth: 1920,
@@ -209,75 +258,149 @@ const handleRun = async () => {
       webrtcSpoof: true,
       navigatorOverride: true,
       webdriverOverride: true,
-      headless: false
+      headless: false,
+      targetUrl: 'https://example.com'
     };
 
-    // 构建执行配置
+    // 构建执行配置 - 如果没有钱包，创建一个虚拟钱包以确保浏览器能启动
+    const walletsConfig = testWallet ? [{
+      id: testWallet.id?.toString() || '1',
+      name: testWallet.name || 'Test Wallet',
+      address: testWallet.address,
+      privateKey: '', // 将在后端解密
+      chainType: testWallet.chainType || 'ethereum'
+    }] : [{
+      id: 'test-wallet',
+      name: 'Test Wallet',
+      address: '0x0000000000000000000000000000000000000000',
+      privateKey: '',
+      chainType: 'ethereum'
+    }];
+
     const config = {
       targetUrl: profile?.targetUrl || 'https://example.com',
       config: browserConfig,
       userCode: scriptContent.value,
-      wallets: [{
-        id: testWallet.id?.toString() || '1',
-        name: testWallet.name || 'Test Wallet',
-        address: testWallet.address,
-        privateKey: '', // 将在后端解密
-        chainType: testWallet.chainType || 'ethereum'
-      }],
+      wallets: walletsConfig,
       concurrency: 1,
       timeoutSecs: 300
     };
 
-    // 使用新的执行器
+    console.log('[ScriptEditor] 执行配置:', JSON.stringify(config, null, 2));
+
+    // 创建新的执行器并保存引用
     const executor = new ScriptExecutor();
+    state.executor = executor;
 
     // 创建会话
+    console.log('[ScriptEditor] 正在创建会话...');
     await executor.createSession(config);
+    console.log('[ScriptEditor] 会话创建成功, sessionId:', executor.getSessionId());
 
     // 订阅日志
     await executor.subscribeLogs((log: any) => {
-      executionLogs.value.push(log);
-      // 限制日志数量，避免内存溢出
-      if (executionLogs.value.length > 1000) {
-        executionLogs.value = executionLogs.value.slice(-500);
+      const currentState = scriptExecutionStates.value.get(activeScript.value!.id);
+      if (currentState) {
+        currentState.logs.push(log);
+        // 限制日志数量，避免内存溢出
+        if (currentState.logs.length > 1000) {
+          currentState.logs = currentState.logs.slice(-500);
+        }
       }
     });
 
     // 启动执行
+    console.log('[ScriptEditor] 正在启动执行...');
     await executor.startExecution(
       (status: any) => {
-        executionStatus.value = status;
+        console.log('[ScriptEditor] 状态更新:', status);
+        const currentState = scriptExecutionStates.value.get(activeScript.value!.id);
+        if (currentState) {
+          currentState.status = status;
+        }
       },
       (success: boolean, error?: string) => {
-        executing.value = false;
+        console.log('[ScriptEditor] 执行完成, success:', success, 'error:', error);
+        const currentState = scriptExecutionStates.value.get(activeScript.value!.id);
+        if (currentState) {
+          currentState.executing = false;
+          // 更新状态为完成或失败
+          if (currentState.status) {
+            currentState.status.status = success ? 'completed' : 'failed';
+            // 如果有运行中的钱包，将其计入失败或成功
+            const runningCount = currentState.status.runningWallets || 0;
+            if (!success && runningCount > 0) {
+              currentState.status.failedWallets = (currentState.status.failedWallets || 0) + runningCount;
+            } else if (success && runningCount > 0) {
+              currentState.status.completedWallets = (currentState.status.completedWallets || 0) + runningCount;
+            }
+            // 确保运行中数量为0
+            currentState.status.runningWallets = 0;
+          }
+        }
         if (success) {
           Message.success('测试运行完成');
         } else {
           Message.error('测试运行失败: ' + (error || '未知错误'));
         }
         // 清理资源
-        executor.cleanup().catch(console.error);
+        executor?.cleanup().catch(console.error);
+        if (currentState) {
+          currentState.executor = null;
+        }
       },
       1000
     );
 
-    Message.success(`测试运行已启动，使用钱包: ${testWallet.name || testWallet.address.slice(0, 8)}...`);
+    console.log('[ScriptEditor] 执行已启动');
+    if (testWallet) {
+      Message.success(`测试运行已启动，使用钱包: ${testWallet.name || testWallet.address.slice(0, 8)}...`);
+    } else {
+      Message.success('测试运行已启动（无钱包）');
+    }
 
   } catch (error) {
-    executing.value = false;
+    state.executing = false;
+    state.executor = null;
+    // 更新状态为失败
+    if (state.status) {
+      // 先读取运行中数量，再重置
+      const runningCount = state.status.runningWallets || 0;
+      state.status.status = 'failed';
+      // 将运行中的任务计入失败
+      if (runningCount > 0) {
+        state.status.failedWallets = (state.status.failedWallets || 0) + runningCount;
+      }
+      // 确保运行中数量为0
+      state.status.runningWallets = 0;
+      // 如果没有总任务数，设置默认值
+      if (!state.status.totalWallets || state.status.totalWallets === 0) {
+        state.status.totalWallets = 1;
+        state.status.failedWallets = 1;
+      }
+    } else {
+      // 如果没有状态对象，创建一个失败状态
+      state.status = {
+        status: 'failed',
+        totalWallets: 1,
+        completedWallets: 0,
+        failedWallets: 1,
+        runningWallets: 0
+      };
+    }
     Message.error('测试运行失败: ' + getErrorMessage(error));
   }
 };
 
 const handleStopExecution = async () => {
-  if (!executing.value) return;
+  const state = getCurrentExecutionState();
+  if (!state || !state.executing || !state.executor) return;
 
   try {
-    // 通过全局执行器取消
-    const { getGlobalExecutor } = await import('../services/scriptExecutor');
-    const executor = getGlobalExecutor();
-    await executor.cancel();
-    executing.value = false;
+    // 使用当前执行器实例取消
+    await state.executor.cancel();
+    state.executing = false;
+    state.executor = null;
     Message.success('已停止执行');
   } catch (error) {
     Message.error('停止失败: ' + getErrorMessage(error));
@@ -285,7 +408,17 @@ const handleStopExecution = async () => {
 };
 
 const clearExecutionLogs = () => {
-  executionLogs.value = [];
+  const state = getCurrentExecutionState();
+  if (state) {
+    state.logs = [];
+  }
+};
+
+const hideExecutionPanel = () => {
+  const state = getCurrentExecutionState();
+  if (state) {
+    state.showPanel = false;
+  }
 };
 
 const handleNewScript = () => {
@@ -495,10 +628,10 @@ onMounted(() => {
         <h3>脚本列表</h3>
         <a-space>
           <a-button type="secondary" size="small" @click="handleImportScript" title="导入脚本">
-            <template #icon><icon-to-bottom /></template>
+            <template #icon><IconToBottom /></template>
           </a-button>
           <a-button type="primary" size="small" @click="handleNewScript" title="创建新脚本" style="margin-left: 10px;">
-            <template #icon><icon-plus /></template>
+            <template #icon><IconPlus /></template>
           </a-button>
         </a-space>
       </div>
@@ -512,7 +645,7 @@ onMounted(() => {
           @click="handleSelectScript(script)"
         >
           <div class="item-main">
-            <icon-code />
+            <IconCode />
             <template v-if="editingScriptId === script.id">
               <input
                 ref="editNameInput"
@@ -530,10 +663,10 @@ onMounted(() => {
             </template>
           </div>
           <div class="item-actions">
-            <icon-delete class="delete-icon" @click="(e) => handleDeleteScript(e, script.id)" />
+            <IconDelete class="delete-icon" @click="(e) => handleDeleteScript(e, script.id)" />
           </div>
         </div>
-        <div v-if="scripts.length === 0" class="empty-scripts">
+        <div v-if="!scripts || scripts.length === 0" class="empty-scripts">
           暂无脚本，点击 + 创建新脚本
         </div>
       </div>
@@ -543,33 +676,33 @@ onMounted(() => {
       <div class="editor-area">
         <div class="editor-toolbar">
           <div class="file-info">
-            <icon-file />
+            <IconFile />
             <span>{{ activeScript.name }}</span>
           </div>
           <div class="actions">
             <a-tooltip content="API 参考文档">
               <a-button type="text" size="small" @click="setToolTab('api')" :status="activeToolTab === 'api' ? 'primary' : 'normal'" v-if="!isFullscreen">
-                <template #icon><icon-book /></template>
+                <template #icon><IconBook /></template>
               </a-button>
             </a-tooltip>
             <a-tooltip content="脚本录制">
               <a-button type="text" size="small" @click="setToolTab('recorder')" :status="activeToolTab === 'recorder' ? 'warning' : 'normal'" v-if="!isFullscreen">
-                <template #icon><icon-record /></template>
+                <template #icon><IconRecord /></template>
               </a-button>
             </a-tooltip>
             <a-tooltip content="全屏编辑">
               <a-button type="text" size="small" @click="toggleFullscreen">
-                <template #icon><icon-fullscreen v-if="!isFullscreen" /><icon-fullscreen-exit v-else /></template>
+                <template #icon><IconFullscreen v-if="!isFullscreen" /><IconFullscreenExit v-else /></template>
               </a-button>
             </a-tooltip>
             <a-tooltip content="导出脚本">
               <a-button type="text" size="small" @click="handleExportScript">
-                <template #icon><icon-to-top /></template>
+                <template #icon><IconToTop /></template>
               </a-button>
             </a-tooltip>
             <a-tooltip content="复制代码">
               <a-button type="text" size="small" @click="handleCopyScript">
-                <template #icon><icon-check v-if="copiedCode" /><icon-copy v-else /></template>
+                <template #icon><IconCheck v-if="copiedCode" /><IconCopy v-else /></template>
               </a-button>
             </a-tooltip>
             <a-button
@@ -578,7 +711,7 @@ onMounted(() => {
               size="small"
               @click="handleRun"
             >
-              <template #icon><icon-play-arrow /></template>
+              <template #icon><IconPlayArrow /></template>
               测试运行
             </a-button>
             <a-button
@@ -587,13 +720,12 @@ onMounted(() => {
               status="danger"
               size="small"
               @click="handleStopExecution"
-              :loading="executing"
             >
-              <template #icon><icon-record /></template>
+              <template #icon><IconRecord /></template>
               停止执行
             </a-button>
             <a-button type="primary" size="small" @click="handleSave">
-              <template #icon><icon-save /></template>
+              <template #icon><IconSave /></template>
               保存
             </a-button>
           </div>
@@ -632,10 +764,10 @@ onMounted(() => {
         </div>
         <div class="execution-actions">
           <a-button type="text" size="mini" @click="clearExecutionLogs">
-            <template #icon><icon-delete /></template>
+            <template #icon><IconDelete /></template>
           </a-button>
-          <a-button type="text" size="mini" @click="showExecutionPanel = false">
-            <icon-close />
+          <a-button type="text" size="mini" @click="hideExecutionPanel">
+            <IconClose />
           </a-button>
         </div>
       </div>
@@ -648,7 +780,7 @@ onMounted(() => {
           <span class="running" v-if="executionStatus.runningWallets > 0">运行中: {{ executionStatus.runningWallets }}</span>
         </div>
         <a-progress
-          :percent="Math.round(((executionStatus.completedWallets + executionStatus.failedWallets) / executionStatus.totalWallets) * 100)"
+          :percent="executionStatus.totalWallets > 0 ? Math.round(((executionStatus.completedWallets + executionStatus.failedWallets) / executionStatus.totalWallets) * 100) / 100 : 0"
           :status="executing ? 'normal' : 'success'"
           size="small"
         />
@@ -666,18 +798,18 @@ onMounted(() => {
           <span class="log-wallet" v-if="log.walletId">[{{ log.walletId.slice(0, 8) }}]</span>
           <span class="log-message">{{ log.message }}</span>
         </div>
-        <div v-if="executionLogs.length === 0" class="empty-logs">
+        <div v-if="!executionLogs || executionLogs.length === 0" class="empty-logs">
           暂无日志，等待执行开始...
         </div>
       </div>
     </div>
 
     <div class="empty-state" v-if="!activeScript">
-      <icon-code style="font-size: 48px; color: var(--color-text-4)" />
+      <IconCode style="font-size: 48px; color: var(--color-text-4)" />
       <p>请选择左侧脚本进行编辑，或创建新脚本</p>
       <a-space>
         <a-button type="primary" @click="handleNewScript">创建新脚本</a-button>
-        <a-button type="outline" @click="handleImportScript">导入脚本</a-button>
+        <a-button type="outline" @click="handleImportScript" style="margin-left: 10px;">导入脚本</a-button>
       </a-space>
     </div>
 
@@ -883,6 +1015,33 @@ onMounted(() => {
   resize: none;
   outline: none;
   tab-size: 2;
+  overflow-y: auto;
+}
+
+/* 滚动条样式 - 适配深浅主题 */
+.code-input::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.code-input::-webkit-scrollbar-track {
+  background: var(--color-fill-2);
+  border-radius: 4px;
+}
+
+.code-input::-webkit-scrollbar-thumb {
+  background: var(--color-text-4);
+  border-radius: 4px;
+}
+
+.code-input::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-3);
+}
+
+/* Firefox 滚动条 */
+.code-input {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-text-4) var(--color-fill-2);
 }
 
 .editor-footer {

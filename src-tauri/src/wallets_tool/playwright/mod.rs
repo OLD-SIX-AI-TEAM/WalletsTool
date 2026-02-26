@@ -7,6 +7,7 @@ pub mod recorder;
 
 /// 浏览器配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BrowserConfig {
     pub user_agent: String,
     pub viewport_width: i32,
@@ -29,6 +30,7 @@ pub struct BrowserConfig {
     pub navigator_override: bool,
     pub webdriver_override: bool,
     pub headless: bool,
+    pub target_url: Option<String>,
 }
 
 impl Default for BrowserConfig {
@@ -55,12 +57,14 @@ impl Default for BrowserConfig {
             navigator_override: true,
             webdriver_override: true,
             headless: false,
+            target_url: None,
         }
     }
 }
 
 /// 钱包信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WalletInfo {
     pub id: String,
     pub name: String,
@@ -71,6 +75,7 @@ pub struct WalletInfo {
 
 /// 执行参数
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionParams {
     pub target_url: String,
     pub config: BrowserConfig,
@@ -82,6 +87,7 @@ pub struct ExecutionParams {
 
 /// 执行配置（用于 executor 模块）
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionConfig {
     pub target_url: String,
     pub config: BrowserConfig,
@@ -177,171 +183,170 @@ function generateFingerprint() {
 function generateUltimateStealthScript(fingerprint) {
   const { hardwareConcurrency, deviceMemory, platform, languages, vendor, colorDepth } = fingerprint;
 
-  return \`
-    (() => {
-      'use strict';
-      const DEBUG = false;
-      const log = (...args) => { if (DEBUG) console.log('[Stealth]', ...args); };
-
-      // 1. 多层 webdriver 移除
-      try {
-        delete navigator.webdriver;
-        Object.defineProperty(navigator, 'webdriver', {
-          get: () => false,
-          configurable: true,
-          enumerable: true
-        });
-        Object.defineProperty(Navigator.prototype, 'webdriver', {
-          get: () => false,
-          configurable: true,
-          enumerable: true
-        });
-        log('webdriver removed');
-      } catch (e) { }
-
-      // 2. Navigator 属性伪装
-      try {
-        const props = {
-          languages: \${JSON.stringify(languages)},
-          hardwareConcurrency: \${hardwareConcurrency},
-          deviceMemory: \${deviceMemory},
-          platform: '\${platform}',
-          vendor: '\${vendor}',
-          maxTouchPoints: 0,
-          productSub: '20030107',
-          pdfViewerEnabled: true,
-          webdriver: false,
-        };
-
-        Object.entries(props).forEach(([key, value]) => {
-          try {
-            Object.defineProperty(navigator, key, { get: () => value, configurable: true, enumerable: true });
-          } catch (e) {}
-        });
-        log('Navigator properties set');
-      } catch (e) { }
-
-      // 3. Canvas 指纹混淆
-      try {
-        const originalGetContext = HTMLCanvasElement.prototype.getContext;
-        HTMLCanvasElement.prototype.getContext = function(type, ...args) {
-          const context = originalGetContext.apply(this, [type, ...args]);
-          if (!context) return context;
-          
-          if (type === '2d') {
-            const randomOffset = () => (Math.random() - 0.5) * 0.0001;
-            
-            ['fillText', 'strokeText', 'measureText'].forEach(method => {
-              const original = context[method];
-              context[method] = function(...textArgs) {
-                if (method !== 'measureText' && Math.random() > 0.2) {
-                  textArgs[1] = (textArgs[1] || 0) + randomOffset();
-                  textArgs[2] = (textArgs[2] || 0) + randomOffset();
-                }
-                return original.apply(this, textArgs);
-              };
-            });
-
-            const originalGetImageData = context.getImageData;
-            context.getImageData = function(sx, sy, sw, sh) {
-              const imageData = originalGetImageData.apply(this, [sx, sy, sw, sh]);
-              const noise = Math.floor(Math.random() * 3) - 1;
-              for (let i = 0; i < imageData.data.length; i += 4) {
-                imageData.data[i] = Math.max(0, Math.min(255, imageData.data[i] + noise));
-                imageData.data[i + 1] = Math.max(0, Math.min(255, imageData.data[i + 1] + noise));
-                imageData.data[i + 2] = Math.max(0, Math.min(255, imageData.data[i + 2] + noise));
-              }
-              return imageData;
-            };
-          }
-          return context;
-        };
-        log('Canvas fingerprinting protection enabled');
-      } catch (e) { }
-
-      // 4. WebGL 指纹伪装
-      try {
-        const overrideWebGL = (WebGLClass) => {
-          if (!WebGLClass) return;
-          const originalGetParameter = WebGLClass.prototype.getParameter;
-          WebGLClass.prototype.getParameter = function(parameter) {
-            if (parameter === 37445) return 'Google Inc.';
-            if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti)';
-            return originalGetParameter.apply(this, arguments);
-          };
-          const originalGetExtension = WebGLClass.prototype.getExtension;
-          WebGLClass.prototype.getExtension = function(name) {
-            if (name === 'WEBGL_debug_renderer_info') return null;
-            return originalGetExtension.apply(this, [name]);
-          };
-        };
-        overrideWebGL(WebGLRenderingContext);
-        overrideWebGL(WebGL2RenderingContext);
-        log('WebGL fingerprinting protection enabled');
-      } catch (e) { }
-
-      // 5. Chrome 对象伪装
-      try {
-        window.navigator.chrome = {
-          app: {
-            isInstalled: false,
-            getDetails: () => null,
-            getIsInstalled: () => false
-          },
-          runtime: {
-            OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install' },
-            PlatformOs: { WIN: 'win', MAC: 'mac', LINUX: 'linux' },
-          },
-          csi: () => ({}),
-          loadTimes: () => ({
-            commitLoadTime: Date.now() / 1000 - Math.random() * 2,
-            connectionInfo: 'http/1.1',
-            firstPaintTime: Date.now() / 1000 - Math.random(),
-          })
-        };
-        log('Chrome object faked');
-      } catch (e) { }
-
-      // 6. Plugins 伪装
-      try {
-        const plugins = Object.create(PluginArray.prototype);
-        Object.defineProperty(plugins, 'length', { get: () => 3, enumerable: true });
-        plugins.item = function(i) { return null; };
-        plugins.namedItem = function(name) { return null; };
-        plugins.refresh = () => {};
-        Object.defineProperty(navigator, 'plugins', { get: () => plugins, configurable: true, enumerable: true });
-        log('Plugins faked');
-      } catch (e) { }
-
-      // 7. 窗口尺寸伪装
-      try {
-        Object.defineProperty(window, 'outerWidth', { 
-          get: () => window.innerWidth + 16, 
-          configurable: true 
-        });
-        Object.defineProperty(window, 'outerHeight', { 
-          get: () => window.innerHeight + 85, 
-          configurable: true 
-        });
-        Object.defineProperty(window, 'devicePixelRatio', { 
-          get: () => \${fingerprint.devicePixelRatio}, 
-          configurable: true 
-        });
-        log('Window dimensions faked');
-      } catch (e) { }
-
-      // 8. Screen 对象
-      try {
-        Object.defineProperty(window.screen, 'pixelDepth', { get: () => \${colorDepth}, configurable: true });
-        Object.defineProperty(window.screen, 'colorDepth', { get: () => \${colorDepth}, configurable: true });
-        Object.defineProperty(window.screen, 'width', { get: () => \${fingerprint.screenSize.width}, configurable: true });
-        Object.defineProperty(window.screen, 'height', { get: () => \${fingerprint.screenSize.height}, configurable: true });
-        log('Screen properties set');
-      } catch (e) { }
-
-      log('All stealth scripts injected successfully');
-    })();
-  \`;
+  // 使用字符串拼接而不是模板字符串，避免嵌套模板字符串的问题
+  return '(() => {\n' +
+    "  'use strict';\n" +
+    '  const DEBUG = false;\n' +
+    "  const log = (...args) => { if (DEBUG) console.log('[Stealth]', ...args); };\n" +
+    '\n' +
+    '  // 1. 多层 webdriver 移除\n' +
+    '  try {\n' +
+    '    delete navigator.webdriver;\n' +
+    "    Object.defineProperty(navigator, 'webdriver', {\n" +
+    '      get: () => false,\n' +
+    '      configurable: true,\n' +
+    '      enumerable: true\n' +
+    '    });\n' +
+    "    Object.defineProperty(Navigator.prototype, 'webdriver', {\n" +
+    '      get: () => false,\n' +
+    '      configurable: true,\n' +
+    '      enumerable: true\n' +
+    '    });\n' +
+    "    log('webdriver removed');\n" +
+    '  } catch (e) { }\n' +
+    '\n' +
+    '  // 2. Navigator 属性伪装\n' +
+    '  try {\n' +
+    '    const props = {\n' +
+    '      languages: ' + JSON.stringify(languages) + ',\n' +
+    '      hardwareConcurrency: ' + hardwareConcurrency + ',\n' +
+    '      deviceMemory: ' + deviceMemory + ',\n' +
+    "      platform: '" + platform + "',\n" +
+    "      vendor: '" + vendor + "',\n" +
+    '      maxTouchPoints: 0,\n' +
+    "      productSub: '20030107',\n" +
+    '      pdfViewerEnabled: true,\n' +
+    '      webdriver: false,\n' +
+    '    };\n' +
+    '\n' +
+    '    Object.entries(props).forEach(([key, value]) => {\n' +
+    '      try {\n' +
+    "        Object.defineProperty(navigator, key, { get: () => value, configurable: true, enumerable: true });\n" +
+    '      } catch (e) {}\n' +
+    '    });\n' +
+    "    log('Navigator properties set');\n" +
+    '  } catch (e) { }\n' +
+    '\n' +
+    '  // 3. Canvas 指纹混淆\n' +
+    '  try {\n' +
+    "    const originalGetContext = HTMLCanvasElement.prototype.getContext;\n" +
+    '    HTMLCanvasElement.prototype.getContext = function(type, ...args) {\n' +
+    '      const context = originalGetContext.apply(this, [type, ...args]);\n' +
+    '      if (!context) return context;\n' +
+    '      \n' +
+    "      if (type === '2d') {\n" +
+    '        const randomOffset = () => (Math.random() - 0.5) * 0.0001;\n' +
+    '        \n' +
+    "        ['fillText', 'strokeText', 'measureText'].forEach(method => {\n" +
+    '          const original = context[method];\n' +
+    '          context[method] = function(...textArgs) {\n' +
+    '            if (method !== \'measureText\' && Math.random() > 0.2) {\n' +
+    '              textArgs[1] = (textArgs[1] || 0) + randomOffset();\n' +
+    '              textArgs[2] = (textArgs[2] || 0) + randomOffset();\n' +
+    '            }\n' +
+    '            return original.apply(this, textArgs);\n' +
+    '          };\n' +
+    '        });\n' +
+    '\n' +
+    '        const originalGetImageData = context.getImageData;\n' +
+    '        context.getImageData = function(sx, sy, sw, sh) {\n' +
+    '          const imageData = originalGetImageData.apply(this, [sx, sy, sw, sh]);\n' +
+    '          const noise = Math.floor(Math.random() * 3) - 1;\n' +
+    '          for (let i = 0; i < imageData.data.length; i += 4) {\n' +
+    '            imageData.data[i] = Math.max(0, Math.min(255, imageData.data[i] + noise));\n' +
+    '            imageData.data[i + 1] = Math.max(0, Math.min(255, imageData.data[i + 1] + noise));\n' +
+    '            imageData.data[i + 2] = Math.max(0, Math.min(255, imageData.data[i + 2] + noise));\n' +
+    '          }\n' +
+    '          return imageData;\n' +
+    '        };\n' +
+    '      }\n' +
+    '      return context;\n' +
+    '    };\n' +
+    "    log('Canvas fingerprinting protection enabled');\n" +
+    '  } catch (e) { }\n' +
+    '\n' +
+    '  // 4. WebGL 指纹伪装\n' +
+    '  try {\n' +
+    '    const overrideWebGL = (WebGLClass) => {\n' +
+    '      if (!WebGLClass) return;\n' +
+    '      const originalGetParameter = WebGLClass.prototype.getParameter;\n' +
+    '      WebGLClass.prototype.getParameter = function(parameter) {\n' +
+    "        if (parameter === 37445) return 'Google Inc.';\n" +
+    "        if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti)';\n" +
+    '        return originalGetParameter.apply(this, arguments);\n' +
+    '      };\n' +
+    '      const originalGetExtension = WebGLClass.prototype.getExtension;\n' +
+    '      WebGLClass.prototype.getExtension = function(name) {\n' +
+    "        if (name === 'WEBGL_debug_renderer_info') return null;\n" +
+    '        return originalGetExtension.apply(this, [name]);\n' +
+    '      };\n' +
+    '    };\n' +
+    '    overrideWebGL(WebGLRenderingContext);\n' +
+    '    overrideWebGL(WebGL2RenderingContext);\n' +
+    "    log('WebGL fingerprinting protection enabled');\n" +
+    '  } catch (e) { }\n' +
+    '\n' +
+    '  // 5. Chrome 对象伪装\n' +
+    '  try {\n' +
+    '    window.navigator.chrome = {\n' +
+    '      app: {\n' +
+    '        isInstalled: false,\n' +
+    '        getDetails: () => null,\n' +
+    '        getIsInstalled: () => false\n' +
+    '      },\n' +
+    '      runtime: {\n' +
+    "        OnInstalledReason: { CHROME_UPDATE: 'chrome_update', INSTALL: 'install' },\n" +
+    "        PlatformOs: { WIN: 'win', MAC: 'mac', LINUX: 'linux' },\n" +
+    '      },\n' +
+    '      csi: () => ({}),\n' +
+    '      loadTimes: () => ({\n' +
+    '        commitLoadTime: Date.now() / 1000 - Math.random() * 2,\n' +
+    "        connectionInfo: 'http/1.1',\n" +
+    '        firstPaintTime: Date.now() / 1000 - Math.random(),\n' +
+    '      })\n' +
+    '    };\n' +
+    "    log('Chrome object faked');\n" +
+    '  } catch (e) { }\n' +
+    '\n' +
+    '  // 6. Plugins 伪装\n' +
+    '  try {\n' +
+    '    const plugins = Object.create(PluginArray.prototype);\n' +
+    "    Object.defineProperty(plugins, 'length', { get: () => 3, enumerable: true });\n" +
+    '    plugins.item = function(i) { return null; };\n' +
+    '    plugins.namedItem = function(name) { return null; };\n' +
+    '    plugins.refresh = () => {};\n' +
+    "    Object.defineProperty(navigator, 'plugins', { get: () => plugins, configurable: true, enumerable: true });\n" +
+    "    log('Plugins faked');\n" +
+    '  } catch (e) { }\n' +
+    '\n' +
+    '  // 7. 窗口尺寸伪装\n' +
+    '  try {\n' +
+    '    Object.defineProperty(window, \'outerWidth\', { \n' +
+    '      get: () => window.innerWidth + 16, \n' +
+    '      configurable: true \n' +
+    '    });\n' +
+    '    Object.defineProperty(window, \'outerHeight\', { \n' +
+    '      get: () => window.innerHeight + 85, \n' +
+    '      configurable: true \n' +
+    '    });\n' +
+    '    Object.defineProperty(window, \'devicePixelRatio\', { \n' +
+    '      get: () => ' + fingerprint.devicePixelRatio + ', \n' +
+    '      configurable: true \n' +
+    '    });\n' +
+    "    log('Window dimensions faked');\n" +
+    '  } catch (e) { }\n' +
+    '\n' +
+    '  // 8. Screen 对象\n' +
+    '  try {\n' +
+    '    Object.defineProperty(window.screen, \'pixelDepth\', { get: () => ' + colorDepth + ', configurable: true });\n' +
+    '    Object.defineProperty(window.screen, \'colorDepth\', { get: () => ' + colorDepth + ', configurable: true });\n' +
+    '    Object.defineProperty(window.screen, \'width\', { get: () => ' + fingerprint.screenSize.width + ', configurable: true });\n' +
+    '    Object.defineProperty(window.screen, \'height\', { get: () => ' + fingerprint.screenSize.height + ', configurable: true });\n' +
+    "    log('Screen properties set');\n" +
+    '  } catch (e) { }\n' +
+    '\n' +
+    "  log('All stealth scripts injected successfully');\n" +
+    '})();';
 }
 
 // ==================== 行为模拟 ====================
@@ -440,7 +445,7 @@ class BrowserManager {
         '--disable-extensions',
         '--no-first-run',
         '--ignore-certificate-errors',
-        \`--window-size=\${this.fingerprint.screenSize.width},\${this.fingerprint.screenSize.height}\`,
+        `--window-size=${this.fingerprint.screenSize.width},${this.fingerprint.screenSize.height}`,
       ],
       ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection']
     };
@@ -448,8 +453,8 @@ class BrowserManager {
     // 代理配置
     if (CONFIG.proxy_type !== 'direct' && CONFIG.proxy_host) {
       const proxyUrl = CONFIG.proxy_username 
-        ? \`http://\${CONFIG.proxy_username}:\${CONFIG.proxy_password}@\${CONFIG.proxy_host}:\${CONFIG.proxy_port}\`
-        : \`http://\${CONFIG.proxy_host}:\${CONFIG.proxy_port}\`;
+        ? `http://${CONFIG.proxy_username}:${CONFIG.proxy_password}@${CONFIG.proxy_host}:${CONFIG.proxy_port}`
+        : `http://${CONFIG.proxy_host}:${CONFIG.proxy_port}`;
       launchOptions.proxy = { server: proxyUrl };
     }
 
@@ -487,21 +492,22 @@ async function runBrowserInstance(browserIndex, visitCount, wallet) {
   let successCount = 0;
   let failCount = 0;
   
-  console.log(`[Browser \${browserIndex}] Starting for wallet: \${wallet.name}`);
+  console.log(`[Browser ${browserIndex}] Starting for wallet: ${wallet.name}`);
 
   const manager = new BrowserManager(browserIndex);
   await manager.createBrowser();
 
   try {
     for (let i = 1; i <= visitCount; i++) {
+      // 构建 context 对象，添加调试信息
       const context = {
         manager,
-        url: CONFIG.target_url,
+        url: CONFIG.targetUrl,
         visitIndex: i,
         totalVisits: visitCount,
         wallet: wallet,
         api: {
-          log: (level, message) => console.log(`[\${level.toUpperCase()}] \${message}`),
+          log: (level, message) => console.log(`[${level.toUpperCase()}] ${message}`),
           randomDelay,
           sleep,
           humanLikeClick,
@@ -509,16 +515,40 @@ async function runBrowserInstance(browserIndex, visitCount, wallet) {
           humanLikeMouseMove,
         }
       };
+      
+      // 调试：打印 context 对象结构
+      console.log(`[Browser ${browserIndex}] Context keys:`, Object.keys(context));
+      console.log(`[Browser ${browserIndex}] api defined:`, !!context.api);
+      console.log(`[Browser ${browserIndex}] api.log defined:`, !!(context.api && context.api.log));
 
       try {
+        // 检查 visitPage 函数是否存在
+        if (typeof visitPage !== 'function') {
+          throw new Error('visitPage function is not defined. Please define visitPage function in your script.');
+        }
+        
+        // 调试：在传入前再次确认 context.api 存在
+        if (!context.api) {
+          console.error(`[Browser ${browserIndex}] ERROR: context.api is undefined before calling visitPage`);
+          console.error(`[Browser ${browserIndex}] context keys:`, Object.keys(context));
+          throw new Error('context.api is undefined');
+        }
+        if (typeof context.api.log !== 'function') {
+          console.error(`[Browser ${browserIndex}] ERROR: context.api.log is not a function`);
+          console.error(`[Browser ${browserIndex}] context.api:`, context.api);
+          throw new Error('context.api.log is not a function');
+        }
+        
         const result = await visitPage(context);
         if (result && result.success) {
           successCount++;
         } else {
           failCount++;
+          console.error(`[Browser ${browserIndex}] visitPage returned non-success result:`, result);
         }
       } catch (error) {
-        console.error(`[Browser \${browserIndex}] visitPage error:`, error.message);
+        console.error(`[Browser ${browserIndex}] visitPage error:`, error.message);
+        console.error(`[Browser ${browserIndex}] Error stack:`, error.stack);
         failCount++;
       }
 
@@ -527,7 +557,7 @@ async function runBrowserInstance(browserIndex, visitCount, wallet) {
       }
     }
   } catch (error) {
-    console.error(`[Browser \${browserIndex}] Error:`, error);
+    console.error(`[Browser ${browserIndex}] Error:`, error);
   } finally {
     await manager.closeBrowser();
   }
@@ -542,9 +572,9 @@ async function main() {
   
   const concurrency = Math.min(CONFIG.concurrency || 1, WALLETS.length);
   
-  console.log(`Target URL: \${CONFIG.target_url}`);
-  console.log(`Wallets: \${WALLETS.length}`);
-  console.log(`Concurrency: \${concurrency}`);
+  console.log(`Target URL: ${CONFIG.targetUrl}`);
+  console.log(`Wallets: ${WALLETS.length}`);
+  console.log(`Concurrency: ${concurrency}`);
   console.log('========================================\n');
 
   const promises = [];
@@ -560,16 +590,29 @@ async function main() {
 
   console.log('\n========================================');
   console.log('执行完成');
-  console.log(`成功: \${totalSuccess}, 失败: \${totalFail}`);
+  console.log(`成功: ${totalSuccess}, 失败: ${totalFail}`);
   console.log('========================================');
+  
+  // 如果有失败的任务，返回非零退出码
+  if (totalFail > 0) {
+    console.error(`执行失败: ${totalFail} 个任务执行失败`);
+    process.exit(1);
+  }
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error('执行出错:', error);
+  process.exit(1);
+});
 "#;
 
 /// 构建完整脚本（用于 ExecutionParams）
 pub fn build_script(params: &ExecutionParams) -> String {
-    let config_json = serde_json::to_string(&params.config).unwrap_or_default();
+    // 克隆 config 并设置 target_url
+    let mut browser_config = params.config.clone();
+    browser_config.target_url = Some(params.target_url.clone());
+    
+    let config_json = serde_json::to_string(&browser_config).unwrap_or_default();
     let wallets_json = serde_json::to_string(&params.wallets).unwrap_or_default();
     
     SCRIPT_TEMPLATE
@@ -580,7 +623,11 @@ pub fn build_script(params: &ExecutionParams) -> String {
 
 /// 构建完整脚本（用于 ExecutionConfig）
 pub fn build_script_from_config(config: &ExecutionConfig, wallets: Vec<WalletInfo>) -> Result<String, String> {
-    let config_json = serde_json::to_string(&config.config)
+    // 克隆 config.config 并设置 target_url
+    let mut browser_config = config.config.clone();
+    browser_config.target_url = Some(config.target_url.clone());
+    
+    let config_json = serde_json::to_string(&browser_config)
         .map_err(|e| format!("序列化配置失败: {}", e))?;
     let wallets_json = serde_json::to_string(&wallets)
         .map_err(|e| format!("序列化钱包失败: {}", e))?;

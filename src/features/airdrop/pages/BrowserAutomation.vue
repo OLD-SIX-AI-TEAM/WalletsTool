@@ -21,7 +21,7 @@ import {
 import { cliCheckService, type CliToolStatus } from '../services/cliCheckService';
 
 const themeStore = useThemeStore();
-const isDarkTheme = computed(() => themeStore.currentTheme === 'dark');
+const isDarkTheme = computed(() => themeStore.getEffectiveTheme() === 'dark');
 
 // CLI 工具检查状态
 const cliCheckLoading = ref(false);
@@ -31,6 +31,21 @@ const showCliCheckModal = ref(false);
 // 环境检查状态
 const isEnvReady = ref(false);
 const envCheckFailed = ref(false);
+
+// 页面加载时检查 localStorage 缓存
+const checkLocalStorageCache = () => {
+  const cachedResult = cliCheckService.getCachedResult();
+  if (cachedResult && cachedResult.all_installed) {
+    // 有有效缓存且检查通过，直接设置环境就绪
+    console.log('[BrowserAutomation] 使用 localStorage 缓存，跳过环境检查');
+    isEnvReady.value = true;
+    return true;
+  }
+  return false;
+};
+
+// 立即检查缓存
+const hasCache = checkLocalStorageCache();
 
 const BrowserFarm = defineAsyncComponent(() => import('../components/BrowserFarm.vue'));
 const ScriptEditor = defineAsyncComponent(() => import('../components/ScriptEditor.vue'));
@@ -47,6 +62,10 @@ if (isTauri) {
     appWindow = getCurrentWindow();
     Promise.resolve().then(() => {
       appWindow.emit('page-loaded');
+    });
+    // 监听窗口最大化状态变化
+    appWindow.onResized(async () => {
+      isMaximized.value = await appWindow.isMaximized();
     });
   });
 }
@@ -71,6 +90,11 @@ onMounted(async () => {
   // 环境检查由 EnvCheckOverlay 组件处理
   // 页面加载时检查 CLI 工具（仅用于显示状态）
   await checkCliTools();
+  
+  // 初始化窗口最大化状态
+  if (appWindow) {
+    isMaximized.value = await appWindow.isMaximized();
+  }
 });
 
 // 环境检查通过

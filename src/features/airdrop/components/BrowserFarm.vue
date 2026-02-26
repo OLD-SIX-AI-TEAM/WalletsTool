@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, nextTick } from 'vue';
+import { ref, onMounted, nextTick, computed } from 'vue';
 import { Message, Modal } from '@arco-design/web-vue';
 import { 
   IconPlus, 
@@ -10,9 +10,18 @@ import {
   IconRobot,
   IconDelete,
   IconToBottom,
-  IconToTop
+  IconToTop,
+  IconImport,
+  IconClose,
+  IconRefresh
 } from '@arco-design/web-vue/es/icon';
 import { profileService, initBrowserAutomationTables } from '../services/browserAutomationService';
+import { 
+  generateBatchProfiles, 
+  generateFingerprint,
+  PLATFORM_CONFIGS,
+  REGION_CONFIGS 
+} from '../services/fingerprintGenerator';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 
@@ -34,7 +43,12 @@ const loadProfiles = async () => {
 const activeProfile = ref(null);
 const isEditing = ref(false);
 const showBatchModal = ref(false);
-const batchCount = ref(100);
+
+// 批量导入代理相关
+const showProxyImportModal = ref(false);
+const proxyImportText = ref('');
+const proxyImportType = ref('http');
+const proxyAssignMode = ref('random'); // random: 随机分配, sequential: 顺序分配
 
 const editingProfileId = ref(null);
 const editNameInput = ref(null);
@@ -46,8 +60,13 @@ const startEditName = async (profile, event) => {
   editNameValue.value = profile.name;
   await nextTick();
   const inputEl = Array.isArray(editNameInput.value) ? editNameInput.value[0] : editNameInput.value;
-  inputEl?.focus?.();
-  inputEl?.select?.();
+  if (inputEl) {
+    inputEl.focus();
+    // 使用 setTimeout 确保在 DOM 完全渲染后再选中文本
+    setTimeout(() => {
+      inputEl.select();
+    }, 0);
+  }
 };
 
 const saveEditName = async () => {
@@ -86,18 +105,100 @@ const handleNameKeydown = (event) => {
   }
 };
 
+// 批量生成配置选项
+const batchGenerateOptions = ref({
+  count: 10,
+  baseName: 'Auto-Profile',
+  platformFilter: 'all', // all, desktop, mobile
+  regionFilter: 'all',   // all, asia, europe, americas
+  ensureUniqueness: true,
+});
+
+// 获取现有指纹哈希用于去重
+const getExistingFingerprintHashes = () => {
+  return profiles.value
+    .filter(p => p.fingerprint_hash && p.fingerprint_hash.trim() !== '')
+    .map(p => String(p.fingerprint_hash));
+};
+
 const handleBatchGenerate = async () => {
   try {
-    const newProfiles = await profileService.batchGenerate({
-      count: batchCount.value,
-      enable_all_spoofs: true
-    });
+    const existingHashes = batchGenerateOptions.value.ensureUniqueness 
+      ? getExistingFingerprintHashes() 
+      : [];
+    
+    // 使用新的指纹生成器生成配置
+    const generatedProfiles = generateBatchProfiles(
+      batchGenerateOptions.value.count,
+      batchGenerateOptions.value.baseName,
+      existingHashes
+    );
+    
+    // 创建到数据库
+    const newProfiles = [];
+    for (const profileData of generatedProfiles) {
+      try {
+        const profile = await profileService.createProfile(profileData);
+        newProfiles.push(profile);
+      } catch (e) {
+        console.error('创建配置失败:', e);
+      }
+    }
     
     profiles.value.push(...newProfiles);
-    Message.success(`成功生成 ${batchCount.value} 个配置`);
+    Message.success(`成功生成 ${newProfiles.length} 个唯一配置`);
     showBatchModal.value = false;
   } catch (error) {
     Message.error('批量生成失败: ' + error);
+  }
+};
+
+// 重新生成指纹
+const handleRegenerateFingerprint = async () => {
+  if (!activeProfile.value) return;
+  
+  try {
+    const existingHashes = getExistingFingerprintHashes();
+    const newFingerprint = generateFingerprint();
+    
+    // 检查是否重复
+    if (existingHashes.includes(newFingerprint.fingerprintHash)) {
+      Message.warning('生成的指纹与现有配置重复，请重试');
+      return;
+    }
+    
+    // 更新当前编辑的配置
+    activeProfile.value.user_agent = newFingerprint.userAgent;
+    activeProfile.value.viewport_width = newFingerprint.screenSize.width;
+    activeProfile.value.viewport_height = newFingerprint.screenSize.height;
+    activeProfile.value.device_scale_factor = newFingerprint.devicePixelRatio;
+    activeProfile.value.locale = newFingerprint.locale;
+    activeProfile.value.timezone_id = newFingerprint.timezone;
+    activeProfile.value.hardware_concurrency = newFingerprint.hardwareConcurrency;
+    activeProfile.value.device_memory = newFingerprint.deviceMemory;
+    activeProfile.value.color_depth = newFingerprint.colorDepth;
+    activeProfile.value.languages = JSON.stringify(newFingerprint.languages);
+    activeProfile.value.vendor = newFingerprint.vendor;
+    activeProfile.value.gpu_vendor = newFingerprint.gpuVendor;
+    activeProfile.value.gpu_renderer = newFingerprint.gpuRenderer;
+    activeProfile.value.color_scheme = newFingerprint.colorScheme;
+    activeProfile.value.max_touch_points = newFingerprint.touchConfig.maxTouchPoints;
+    activeProfile.value.has_touch = newFingerprint.touchConfig.hasTouch;
+    activeProfile.value.screen_orientation_angle = newFingerprint.screenOrientation.angle;
+    activeProfile.value.screen_orientation_type = newFingerprint.screenOrientation.type;
+    activeProfile.value.font_family = newFingerprint.fontFamily;
+    activeProfile.value.client_hints_platform = newFingerprint.clientHintsPlatform;
+    activeProfile.value.client_hints_platform_version = newFingerprint.clientHintsPlatformVersion;
+    activeProfile.value.client_hints_architecture = newFingerprint.clientHintsArchitecture;
+    activeProfile.value.client_hints_bitness = newFingerprint.clientHintsBitness;
+    activeProfile.value.client_hints_model = newFingerprint.clientHintsModel;
+    activeProfile.value.client_hints_wow64 = newFingerprint.clientHintsWow64;
+    activeProfile.value.fingerprint_hash = newFingerprint.fingerprintHash;
+    activeProfile.value.platform_name = newFingerprint.platformName;
+    
+    Message.success('指纹已重新生成');
+  } catch (error) {
+    Message.error('重新生成指纹失败: ' + error);
   }
 };
 
@@ -128,12 +229,80 @@ const handleNewProfile = async () => {
   }
 };
 
-const handleEdit = (profile) => {
+const handleEdit = async (profile) => {
   if (editingProfileId.value !== null) {
     editingProfileId.value = null;
   }
   activeProfile.value = { ...profile };
   isEditing.value = true;
+  
+  // 如果没有指纹，自动生成
+  if (!activeProfile.value.fingerprint_hash || activeProfile.value.fingerprint_hash.trim() === '') {
+    console.log(`[handleEdit] 环境 "${profile.name}" 没有指纹，自动生成...`);
+    await autoGenerateFingerprint();
+  }
+};
+
+// 自动为当前环境生成指纹
+const autoGenerateFingerprint = async () => {
+  if (!activeProfile.value) return;
+  
+  try {
+    const existingHashes = getExistingFingerprintHashes();
+    let newFingerprint;
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    // 尝试生成唯一的指纹
+    do {
+      newFingerprint = generateFingerprint();
+      attempts++;
+    } while (existingHashes.includes(newFingerprint.fingerprintHash) && attempts < maxAttempts);
+    
+    if (attempts >= maxAttempts) {
+      console.warn('[autoGenerateFingerprint] 无法生成唯一指纹，使用最后一个生成的');
+    }
+    
+    // 更新当前编辑的配置
+    activeProfile.value.user_agent = newFingerprint.userAgent;
+    activeProfile.value.viewport_width = newFingerprint.screenSize.width;
+    activeProfile.value.viewport_height = newFingerprint.screenSize.height;
+    activeProfile.value.device_scale_factor = newFingerprint.devicePixelRatio;
+    activeProfile.value.locale = newFingerprint.locale;
+    activeProfile.value.timezone_id = newFingerprint.timezone;
+    activeProfile.value.hardware_concurrency = newFingerprint.hardwareConcurrency;
+    activeProfile.value.device_memory = newFingerprint.deviceMemory;
+    activeProfile.value.color_depth = newFingerprint.colorDepth;
+    activeProfile.value.languages = JSON.stringify(newFingerprint.languages);
+    activeProfile.value.vendor = newFingerprint.vendor;
+    activeProfile.value.gpu_vendor = newFingerprint.gpuVendor;
+    activeProfile.value.gpu_renderer = newFingerprint.gpuRenderer;
+    activeProfile.value.color_scheme = newFingerprint.colorScheme;
+    activeProfile.value.max_touch_points = newFingerprint.touchConfig.maxTouchPoints;
+    activeProfile.value.has_touch = newFingerprint.touchConfig.hasTouch;
+    activeProfile.value.screen_orientation_angle = newFingerprint.screenOrientation.angle;
+    activeProfile.value.screen_orientation_type = newFingerprint.screenOrientation.type;
+    activeProfile.value.font_family = newFingerprint.fontFamily;
+    activeProfile.value.client_hints_platform = newFingerprint.clientHintsPlatform;
+    activeProfile.value.client_hints_platform_version = newFingerprint.clientHintsPlatformVersion;
+    activeProfile.value.client_hints_architecture = newFingerprint.clientHintsArchitecture;
+    activeProfile.value.client_hints_bitness = newFingerprint.clientHintsBitness;
+    activeProfile.value.client_hints_model = newFingerprint.clientHintsModel;
+    activeProfile.value.client_hints_wow64 = newFingerprint.clientHintsWow64;
+    activeProfile.value.fingerprint_hash = newFingerprint.fingerprintHash;
+    activeProfile.value.platform_name = newFingerprint.platformName;
+    
+    // 自动保存到数据库
+    const updated = await profileService.updateProfile(activeProfile.value);
+    const index = profiles.value.findIndex(p => p.id === updated.id);
+    if (index !== -1) {
+      profiles.value[index] = updated;
+    }
+    
+    console.log(`[autoGenerateFingerprint] 已为 "${activeProfile.value.name}" 生成并保存指纹: ${newFingerprint.fingerprintHash}`);
+  } catch (error) {
+    console.error('[autoGenerateFingerprint] 自动生成指纹失败:', error);
+  }
 };
 
 const handleSave = async () => {
@@ -175,9 +344,299 @@ const handleDelete = () => {
   }
 };
 
+// 批量删除所有环境
+const handleDeleteAll = () => {
+  if (profiles.value.length === 0) {
+    Message.warning('没有可删除的环境配置');
+    return;
+  }
+
+  Modal.error({
+    title: '危险操作：删除所有环境',
+    content: `确定要删除所有 ${profiles.value.length} 个环境配置吗？此操作不可恢复！`,
+    okText: '确认删除全部',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        const total = profiles.value.length;
+        let deleted = 0;
+        const errors = [];
+
+        // 逐个删除所有配置
+        for (const profile of [...profiles.value]) {
+          try {
+            await profileService.deleteProfile(profile.id);
+            deleted++;
+          } catch (e) {
+            errors.push(`删除 "${profile.name}" 失败: ${e}`);
+          }
+        }
+
+        // 清空本地列表
+        profiles.value = [];
+        isEditing.value = false;
+        activeProfile.value = null;
+
+        if (errors.length > 0) {
+          console.error('批量删除错误:', errors);
+        }
+
+        Message.success(`已成功删除 ${deleted}/${total} 个环境配置`);
+
+        // 自动创建一个默认配置
+        await createDefaultProfile();
+      } catch (error) {
+        console.error('批量删除失败:', error);
+        Message.error('批量删除失败: ' + error);
+      }
+    }
+  });
+};
+
 const handleCancel = () => {
   isEditing.value = false;
   activeProfile.value = null;
+};
+
+// 解析代理字符串
+const parseProxyLine = (line) => {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  
+  // 支持格式：
+  // 1. host:port
+  // 2. host:port:username:password
+  // 3. username:password@host:port
+  // 4. protocol://host:port
+  // 5. protocol://username:password@host:port
+  
+  let protocol = proxyImportType.value;
+  let host = '';
+  let port = '';
+  let username = '';
+  let password = '';
+  
+  // 检查是否包含协议前缀
+  let proxyStr = trimmed;
+  const protocolMatch = trimmed.match(/^(http|https|socks4|socks5):\/\//i);
+  if (protocolMatch) {
+    protocol = protocolMatch[1].toLowerCase();
+    proxyStr = trimmed.substring(protocolMatch[0].length);
+  }
+  
+  // 检查是否包含认证信息 @符号格式
+  const authMatch = proxyStr.match(/^(.*)@(.*)$/);
+  if (authMatch) {
+    const auth = authMatch[1];
+    const address = authMatch[2];
+    const authParts = auth.split(':');
+    if (authParts.length >= 2) {
+      username = authParts[0];
+      password = authParts.slice(1).join(':');
+    }
+    proxyStr = address;
+  }
+  
+  // 解析地址和端口
+  const parts = proxyStr.split(':');
+  if (parts.length >= 2) {
+    host = parts[0];
+    port = parts[1];
+    
+    // 检查是否还有认证信息（host:port:username:password 格式）
+    if (parts.length >= 4 && !username) {
+      username = parts[2];
+      password = parts.slice(3).join(':');
+    }
+  } else {
+    return null;
+  }
+  
+  // 验证端口
+  const portNum = parseInt(port, 10);
+  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+    return null;
+  }
+  
+  return {
+    protocol,
+    host,
+    port: portNum,
+    username: username || null,
+    password: password || null
+  };
+};
+
+// 清除所有代理
+const handleClearAllProxies = async () => {
+  if (profiles.value.length === 0) {
+    Message.warning('没有可用的环境配置');
+    return;
+  }
+
+  const profilesWithProxy = profiles.value.filter(p => p.proxy_type !== 'direct');
+  if (profilesWithProxy.length === 0) {
+    Message.info('当前没有配置使用代理');
+    return;
+  }
+
+  Modal.warning({
+    title: '确认清除代理',
+    content: `确定要清除所有环境配置中的代理设置吗？共有 ${profilesWithProxy.length} 个配置使用了代理。`,
+    onOk: async () => {
+      try {
+        let clearedCount = 0;
+        const errors = [];
+
+        for (const profile of profilesWithProxy) {
+          try {
+            const updated = await profileService.updateProfile({
+              id: profile.id,
+              proxy_type: 'direct',
+              proxy_host: null,
+              proxy_port: null,
+              proxy_username: null,
+              proxy_password: null
+            });
+
+            // 更新本地数据
+            const index = profiles.value.findIndex(p => p.id === profile.id);
+            if (index !== -1) {
+              profiles.value[index] = updated;
+            }
+            clearedCount++;
+          } catch (error) {
+            errors.push(`清除 "${profile.name}" 的代理失败: ${error}`);
+          }
+        }
+
+        if (errors.length > 0) {
+          console.error('清除代理错误:', errors);
+        }
+
+        Message.success(`成功清除 ${clearedCount} 个配置的代理设置`);
+
+        // 如果正在编辑的配置被清除了代理，更新编辑状态
+        if (activeProfile.value && activeProfile.value.proxy_type !== 'direct') {
+          const updatedActive = profiles.value.find(p => p.id === activeProfile.value.id);
+          if (updatedActive) {
+            activeProfile.value = { ...updatedActive };
+          }
+        }
+      } catch (error) {
+        console.error('清除代理失败:', error);
+        Message.error('清除代理失败: ' + error);
+      }
+    }
+  });
+};
+
+// 批量导入代理
+const handleProxyImport = async () => {
+  if (!proxyImportText.value.trim()) {
+    Message.warning('请输入代理列表');
+    return;
+  }
+  
+  if (profiles.value.length === 0) {
+    Message.warning('没有可用的环境配置，请先创建或导入环境配置');
+    return;
+  }
+  
+  const lines = proxyImportText.value.split('\n');
+  const proxies = [];
+  const errors = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    const proxy = parseProxyLine(line);
+    if (proxy) {
+      proxies.push(proxy);
+    } else {
+      errors.push(`第 ${i + 1} 行格式错误: ${line.substring(0, 50)}${line.length > 50 ? '...' : ''}`);
+    }
+  }
+  
+  if (proxies.length === 0) {
+    Message.error('没有解析到有效的代理配置');
+    return;
+  }
+  
+  if (errors.length > 0) {
+    console.warn('代理解析错误:', errors);
+  }
+  
+  // 分配代理到环境配置
+  const updatedProfiles = [];
+  const assignErrors = [];
+  
+  // 创建环境配置的副本用于分配
+  let targetProfiles = [...profiles.value];
+  
+  // 如果代理数量多于环境配置，只使用前 N 个代理
+  const effectiveProxies = proxies.slice(0, targetProfiles.length);
+  
+  // 根据分配模式处理
+  if (proxyAssignMode.value === 'random') {
+    // 随机打乱环境配置顺序
+    targetProfiles = targetProfiles.sort(() => Math.random() - 0.5);
+  }
+  // sequential 模式保持原有顺序
+  // same 模式也保持原有顺序，但所有环境使用同一个代理
+
+  // 确定循环次数：same 模式遍历所有环境，其他模式遍历有效代理数量
+  const loopCount = proxyAssignMode.value === 'same'
+    ? targetProfiles.length
+    : effectiveProxies.length;
+
+  for (let i = 0; i < loopCount; i++) {
+    const profile = targetProfiles[i];
+    // same 模式下所有环境使用第一个代理
+    const proxy = proxyAssignMode.value === 'same'
+      ? proxies[0]
+      : effectiveProxies[i];
+    
+    try {
+      const updated = await profileService.updateProfile({
+        id: profile.id,
+        proxy_type: proxy.protocol,
+        proxy_host: proxy.host,
+        proxy_port: proxy.port,
+        proxy_username: proxy.username,
+        proxy_password: proxy.password
+      });
+      
+      updatedProfiles.push(updated);
+      
+      // 更新本地数据
+      const index = profiles.value.findIndex(p => p.id === profile.id);
+      if (index !== -1) {
+        profiles.value[index] = updated;
+      }
+    } catch (error) {
+      assignErrors.push(`分配给 "${profile.name}" 失败: ${error}`);
+    }
+  }
+  
+  // 显示结果
+  let message = `成功为 ${updatedProfiles.length} 个环境配置分配代理`;
+  // same 模式下只使用第一个代理，不显示代理未分配提示
+  if (proxyAssignMode.value !== 'same' && proxies.length > targetProfiles.length) {
+    message += `，${proxies.length - targetProfiles.length} 个代理未分配（环境配置不足）`;
+  }
+  if (assignErrors.length > 0) {
+    message += `，${assignErrors.length} 个分配失败`;
+    console.error('代理分配错误:', assignErrors);
+  }
+  if (errors.length > 0) {
+    message += `，${errors.length} 行解析失败`;
+  }
+  
+  Message.success(message);
+  showProxyImportModal.value = false;
+  proxyImportText.value = '';
 };
 
 // 导出配置
@@ -281,8 +740,47 @@ const USER_AGENTS = [
 const PROXY_TYPES = [
   { label: 'Direct', value: 'direct' },
   { label: 'HTTP', value: 'http' },
+  { label: 'HTTPS', value: 'https' },
   { label: 'SOCKS5', value: 'socks5' }
 ];
+
+// 代理分配模式选项
+const PROXY_ASSIGN_MODES = [
+  { label: '随机分配', value: 'random' },
+  { label: '顺序分配', value: 'sequential' },
+  { label: '使用相同配置', value: 'same' }
+];
+
+// 创建默认配置
+const createDefaultProfile = async () => {
+  try {
+    const newProfile = await profileService.createProfile({
+      name: `配置 ${profiles.value.length + 1}`,
+      user_agent: USER_AGENTS[0],
+      viewport_width: 1920,
+      viewport_height: 1080,
+      proxy_type: 'direct',
+      canvas_spoof: true,
+      webgl_spoof: true,
+      audio_spoof: true,
+      timezone_spoof: true,
+      geolocation_spoof: true,
+      font_spoof: true,
+      webrtc_spoof: true,
+      navigator_override: true,
+      webdriver_override: true
+    });
+    
+    profiles.value.push(newProfile);
+    activeProfile.value = { ...newProfile };
+    isEditing.value = true;
+    Message.success('已创建新配置');
+    return newProfile;
+  } catch (error) {
+    Message.error('创建配置失败: ' + error);
+    return null;
+  }
+};
 
 onMounted(async () => {
   // 初始化表结构（包含迁移）
@@ -292,6 +790,14 @@ onMounted(async () => {
     console.log('Tables may already exist:', e);
   }
   await loadProfiles();
+  
+  // 如果没有配置，自动创建一个
+  if (profiles.value.length === 0) {
+    await createDefaultProfile();
+  } else {
+    // 否则选中第一个配置
+    handleEdit(profiles.value[0]);
+  }
 });
 </script>
 
@@ -299,27 +805,19 @@ onMounted(async () => {
   <div class="browser-farm">
     <div class="profile-list">
       <div class="list-header">
-        <h3 class="header-title">环境配置列表</h3>
-        <p class="header-subtitle">{{ profiles.length }} 个配置</p>
-        <div class="header-actions-row">
-          <a-button type="primary" size="small" @click="handleNewProfile" long>
-            <template #icon><icon-plus /></template>
-            新建配置
-          </a-button>
-        </div>
-        <div class="header-actions-row secondary">
-          <a-button type="outline" size="small" @click="showBatchModal = true">
-            <template #icon><icon-robot /></template>
-            批量生成
-          </a-button>
-          <div class="action-group">
-            <a-button type="secondary" size="small" @click="handleImport" title="导入">
-              <template #icon><icon-to-bottom /></template>
-            </a-button>
-            <a-button type="secondary" size="small" @click="handleExport" title="导出">
-              <template #icon><icon-to-top /></template>
-            </a-button>
+        <div class="list-header-top">
+          <div>
+            <h3 class="header-title">环境配置列表</h3>
+            <p class="header-subtitle">{{ profiles.length }} 个配置</p>
           </div>
+          <a-space>
+            <a-button type="primary" size="small" @click="handleNewProfile">
+              <template #icon><icon-plus /></template>
+            </a-button>
+            <a-button status="danger" size="small" @click="handleDeleteAll" :disabled="profiles.length === 0" title="删除所有环境">
+              <template #icon><icon-delete /></template>
+            </a-button>
+          </a-space>
         </div>
       </div>
       
@@ -361,12 +859,74 @@ onMounted(async () => {
     </div>
 
     <div class="profile-editor" v-if="isEditing && activeProfile">
+      <!-- 操作工具栏区域 -->
+      <div class="editor-toolbar-area">
+        <div class="toolbar-section">
+          <span class="toolbar-section-label">代理管理</span>
+          <div class="toolbar-section-actions">
+            <a-button type="primary" size="small" @click="showProxyImportModal = true">
+              <template #icon><icon-import /></template>
+              导入代理
+            </a-button>
+            <a-button type="secondary" size="small" @click="handleClearAllProxies">
+              <template #icon><icon-close /></template>
+              清除代理
+            </a-button>
+          </div>
+        </div>
+        <div class="toolbar-section-divider"></div>
+        <div class="toolbar-section">
+          <span class="toolbar-section-label">配置管理</span>
+          <div class="toolbar-section-actions">
+            <a-button type="outline" size="small" @click="showBatchModal = true">
+              <template #icon><icon-robot /></template>
+              批量生成
+            </a-button>
+            <a-button type="secondary" size="small" @click="handleImport">
+              <template #icon><icon-to-bottom /></template>
+              导入配置
+            </a-button>
+            <a-button type="secondary" size="small" @click="handleExport">
+              <template #icon><icon-to-top /></template>
+              导出配置
+            </a-button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 配置编辑区域 -->
       <div class="editor-header">
-        <h3>编辑配置: {{ activeProfile.name }}</h3>
-        <div class="actions">
-          <a-button status="danger" @click="handleDelete">删除</a-button>
-          <a-button style="margin-left: 10px;" @click="handleCancel">取消</a-button>
-          <a-button style="margin-left: 10px;" type="primary" @click="handleSave">保存</a-button>
+        <div class="editor-title-row">
+          <h3>编辑配置: {{ activeProfile.name }}</h3>
+          <div class="editor-actions-main">
+            <a-button status="danger" size="small" @click="handleDelete">
+              <template #icon><icon-delete /></template>
+              删除
+            </a-button>
+            <a-button size="small" @click="handleCancel">取消</a-button>
+            <a-button type="primary" size="small" @click="handleSave">保存</a-button>
+          </div>
+        </div>
+        
+        <!-- 指纹信息展示 -->
+        <div class="fingerprint-info-bar" v-if="activeProfile.fingerprint_hash && activeProfile.fingerprint_hash.trim() !== ''">
+          <div class="fingerprint-tags">
+            <a-tag size="small" color="arcoblue">{{ activeProfile.platform_name || 'Unknown Platform' }}</a-tag>
+            <a-tag size="small" color="green">{{ activeProfile.locale }}</a-tag>
+            <a-tag size="small" color="orange">{{ activeProfile.timezone_id }}</a-tag>
+            <a-tag size="small" color="purple" v-if="activeProfile.gpu_vendor">{{ activeProfile.gpu_vendor }}</a-tag>
+          </div>
+          <a-button type="outline" size="mini" @click="handleRegenerateFingerprint">
+            <template #icon><icon-refresh /></template>
+            重新生成指纹
+          </a-button>
+        </div>
+        <div class="fingerprint-info-bar" v-else>
+          <a-tag size="small" color="gray">未生成指纹</a-tag>
+          <a-button type="outline" size="mini" @click="handleRegenerateFingerprint">
+            <template #icon><icon-refresh /></template>
+            生成指纹
+          </a-button>
         </div>
       </div>
 
@@ -512,18 +1072,99 @@ onMounted(async () => {
       <p>请选择左侧配置进行编辑</p>
     </div>
 
-    <a-modal v-model:visible="showBatchModal" title="批量生成环境配置" @ok="handleBatchGenerate">
-      <a-form :model="{ batchCount }">
-        <a-form-item label="生成数量">
-          <a-input-number v-model="batchCount" :min="1" :max="1000" />
+    <a-modal v-model:visible="showBatchModal" title="批量生成环境配置" @ok="handleBatchGenerate" width="600px">
+      <a-form layout="vertical">
+        <a-row :gutter="16">
+          <a-col :span="12">
+            <a-form-item label="生成数量">
+              <a-input-number v-model="batchGenerateOptions.count" :min="1" :max="1000" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="配置名称前缀">
+              <a-input v-model="batchGenerateOptions.baseName" placeholder="Auto-Profile" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        
+        <a-form-item>
+          <a-checkbox v-model="batchGenerateOptions.ensureUniqueness">
+            确保指纹唯一性（自动去重）
+          </a-checkbox>
         </a-form-item>
+        
+        <a-divider orientation="left">生成内容预览</a-divider>
+        
         <div style="color: var(--color-text-3); font-size: 12px;">
-          <p>将随机生成以下配置项：</p>
+          <p>将智能生成以下配置项（确保所有信息相互对应）：</p>
+          <a-row :gutter="8">
+            <a-col :span="12">
+              <ul style="margin: 0; padding-left: 16px;">
+                <li>User Agent（与平台匹配）</li>
+                <li>平台信息（Windows/macOS/Linux/iOS/Android）</li>
+                <li>GPU 信息（与平台匹配）</li>
+                <li>分辨率（与设备类型匹配）</li>
+                <li>触摸配置（与设备类型匹配）</li>
+              </ul>
+            </a-col>
+            <a-col :span="12">
+              <ul style="margin: 0; padding-left: 16px;">
+                <li>语言列表（与区域匹配）</li>
+                <li>时区（与区域匹配）</li>
+                <li>字体（与平台匹配）</li>
+                <li>硬件信息（CPU核心/内存）</li>
+                <li>Client Hints 信息</li>
+              </ul>
+            </a-col>
+          </a-row>
+          <p style="margin-top: 8px; color: rgb(var(--primary-6));">
+            <icon-refresh style="margin-right: 4px;" />
+            所有指纹保护选项默认开启，生成的指纹具有强抗性
+          </p>
+        </div>
+      </a-form>
+    </a-modal>
+
+    <!-- 批量导入代理对话框 -->
+    <a-modal 
+      v-model:visible="showProxyImportModal" 
+      title="批量导入代理" 
+      @ok="handleProxyImport"
+      :okButtonProps="{ disabled: !proxyImportText.trim() }"
+      width="600px"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="默认代理类型">
+          <a-select v-model="proxyImportType">
+            <a-option v-for="type in PROXY_TYPES.filter(t => t.value !== 'direct')" :key="type.value" :value="type.value">{{ type.label }}</a-option>
+          </a-select>
+        </a-form-item>
+        
+        <a-form-item label="分配模式">
+          <a-radio-group v-model="proxyAssignMode">
+            <a-radio v-for="mode in PROXY_ASSIGN_MODES" :key="mode.value" :value="mode.value">{{ mode.label }}</a-radio>
+          </a-radio-group>
+          <div style="color: var(--color-text-3); font-size: 12px; margin-top: 4px;">
+            <span v-if="proxyAssignMode === 'random'">代理将随机分配给现有环境配置</span>
+            <span v-else-if="proxyAssignMode === 'sequential'">代理将按顺序分配给现有环境配置</span>
+            <span v-else>所有环境配置将使用相同的代理（只取第一个代理配置）</span>
+          </div>
+        </a-form-item>
+        
+        <a-form-item label="代理列表">
+          <a-textarea 
+            v-model="proxyImportText" 
+            :auto-size="{ minRows: 8, maxRows: 15 }" 
+            placeholder="每行一个代理，支持以下格式：&#10;host:port&#10;host:port:username:password&#10;username:password@host:port&#10;http://host:port&#10;http://username:password@host:port&#10;&#10;示例：&#10;192.168.1.1:8080&#10;192.168.1.2:8080:user:pass&#10;user:pass@192.168.1.3:8080"
+          />
+        </a-form-item>
+        
+        <div style="color: var(--color-text-3); font-size: 12px;">
+          <p>说明：</p>
           <ul>
-            <li>User Agent (Chrome/Firefox/Safari)</li>
-            <li>分辨率 (1920x1080 等常用分辨率)</li>
-            <li>语言和时区</li>
-            <li>所有指纹保护选项（默认开启）</li>
+            <li>支持 HTTP、HTTPS、SOCKS5 代理</li>
+            <li>如果代理数量多于环境配置，多余的代理将被忽略</li>
+            <li>代理将分配到现有的环境配置中</li>
           </ul>
         </div>
       </a-form>
@@ -550,13 +1191,17 @@ onMounted(async () => {
 .list-header {
   padding: 15px;
   border-bottom: 1px solid var(--color-border);
+}
+
+.list-header-top {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
 }
 
 .header-title {
-  margin: 0;
+  margin: 0 0 4px 0;
   font-size: 14px;
   font-weight: 500;
   color: var(--color-text-1);
@@ -566,35 +1211,6 @@ onMounted(async () => {
   margin: 0;
   font-size: 12px;
   color: var(--color-text-3);
-}
-
-.header-actions-row {
-  display: flex;
-  gap: 8px;
-}
-
-.header-actions-row.secondary {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-border);
-  margin-top: 4px;
-}
-
-.action-group {
-  display: flex;
-  gap: 4px;
-}
-
-.action-group .arco-btn {
-  padding: 0 6px;
-  color: var(--color-text-3);
-}
-
-.action-group .arco-btn:hover {
-  color: rgb(var(--primary-6));
-  background: var(--color-fill-2);
 }
 
 .list-content {
@@ -725,24 +1341,114 @@ onMounted(async () => {
   overflow: hidden;
 }
 
+/* 操作工具栏区域 */
+.editor-toolbar-area {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 16px;
+  background: var(--color-fill-2);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--color-border);
+}
+
+/* 配置编辑区域容器 */
+.editor-content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toolbar-section-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-2);
+  white-space: nowrap;
+}
+
+.toolbar-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-section-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--color-border);
+}
+
+/* 配置编辑区域标题栏 */
 .editor-header {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  background: var(--color-bg-2);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+.editor-title-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid var(--color-border);
+  gap: 16px;
 }
 
 .editor-header h3 {
   margin: 0;
   color: var(--color-text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.editor-actions-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 指纹信息栏 */
+.fingerprint-info-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--color-fill-2);
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.fingerprint-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .editor-form {
   flex: 1;
   overflow-y: auto;
-  padding-right: 10px;
+  padding: 16px;
+  background: var(--color-bg-2);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
 }
 
 /* 编辑表单自定义滚动条 */

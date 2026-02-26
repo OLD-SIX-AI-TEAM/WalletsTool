@@ -74,6 +74,28 @@ pub struct BrowserProfile {
     pub is_default: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    // 增强指纹字段
+    pub hardware_concurrency: Option<i32>,
+    pub device_memory: Option<i32>,
+    pub color_depth: Option<i32>,
+    pub languages: Option<String>,
+    pub vendor: Option<String>,
+    pub gpu_vendor: Option<String>,
+    pub gpu_renderer: Option<String>,
+    pub color_scheme: Option<String>,
+    pub max_touch_points: Option<i32>,
+    pub has_touch: Option<bool>,
+    pub screen_orientation_angle: Option<i32>,
+    pub screen_orientation_type: Option<String>,
+    pub font_family: Option<String>,
+    pub client_hints_platform: Option<String>,
+    pub client_hints_platform_version: Option<String>,
+    pub client_hints_architecture: Option<String>,
+    pub client_hints_bitness: Option<String>,
+    pub client_hints_model: Option<String>,
+    pub client_hints_wow64: Option<String>,
+    pub fingerprint_hash: Option<String>,
+    pub platform_name: Option<String>,
 }
 
 /// 创建浏览器环境配置请求
@@ -105,6 +127,28 @@ pub struct CreateBrowserProfileRequest {
     pub headless: Option<bool>,
     pub extensions: Option<String>,
     pub is_default: Option<bool>,
+    // 增强指纹字段
+    pub hardware_concurrency: Option<i32>,
+    pub device_memory: Option<i32>,
+    pub color_depth: Option<i32>,
+    pub languages: Option<String>,
+    pub vendor: Option<String>,
+    pub gpu_vendor: Option<String>,
+    pub gpu_renderer: Option<String>,
+    pub color_scheme: Option<String>,
+    pub max_touch_points: Option<i32>,
+    pub has_touch: Option<bool>,
+    pub screen_orientation_angle: Option<i32>,
+    pub screen_orientation_type: Option<String>,
+    pub font_family: Option<String>,
+    pub client_hints_platform: Option<String>,
+    pub client_hints_platform_version: Option<String>,
+    pub client_hints_architecture: Option<String>,
+    pub client_hints_bitness: Option<String>,
+    pub client_hints_model: Option<String>,
+    pub client_hints_wow64: Option<String>,
+    pub fingerprint_hash: Option<String>,
+    pub platform_name: Option<String>,
 }
 
 /// 更新浏览器环境配置请求
@@ -137,6 +181,28 @@ pub struct UpdateBrowserProfileRequest {
     pub headless: Option<bool>,
     pub extensions: Option<String>,
     pub is_default: Option<bool>,
+    // 增强指纹字段
+    pub hardware_concurrency: Option<i32>,
+    pub device_memory: Option<i32>,
+    pub color_depth: Option<i32>,
+    pub languages: Option<String>,
+    pub vendor: Option<String>,
+    pub gpu_vendor: Option<String>,
+    pub gpu_renderer: Option<String>,
+    pub color_scheme: Option<String>,
+    pub max_touch_points: Option<i32>,
+    pub has_touch: Option<bool>,
+    pub screen_orientation_angle: Option<i32>,
+    pub screen_orientation_type: Option<String>,
+    pub font_family: Option<String>,
+    pub client_hints_platform: Option<String>,
+    pub client_hints_platform_version: Option<String>,
+    pub client_hints_architecture: Option<String>,
+    pub client_hints_bitness: Option<String>,
+    pub client_hints_model: Option<String>,
+    pub client_hints_wow64: Option<String>,
+    pub fingerprint_hash: Option<String>,
+    pub platform_name: Option<String>,
 }
 
 /// 自动化脚本模型
@@ -528,6 +594,7 @@ pub struct UpdateBrowserExtensionRequest {
 
 /// 插件文件夹扫描结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExtensionFolder {
     pub name: String,
     pub path: String,

@@ -8,11 +8,204 @@ use tokio::process::{Child, Command};
 use tokio::sync::{RwLock, Semaphore};
 use tokio::time::{timeout, Duration};
 use uuid::Uuid;
+use std::path::Path;
+use std::env;
 
 use super::ExecutionConfig;
 
 const DEFAULT_MAX_CONCURRENCY: usize = 5;
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
+
+/// 查找 npm 可执行文件的路径
+async fn find_npm_path() -> Result<String, String> {
+    // 首先尝试直接使用 npm（如果在 PATH 中）
+    let test_cmd = if cfg!(target_os = "windows") {
+        Command::new("where")
+            .arg("npm")
+            .output()
+            .await
+    } else {
+        Command::new("which")
+            .arg("npm")
+            .output()
+            .await
+    };
+
+    if let Ok(output) = test_cmd {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout);
+            // Windows: 优先选择 .cmd 文件，避免选择没有扩展名的 shell 脚本
+            let npm_path = if cfg!(target_os = "windows") {
+                path.lines()
+                    .find(|line| line.trim().ends_with(".cmd"))
+                    .or_else(|| path.lines().next())
+                    .unwrap_or("npm")
+                    .trim()
+                    .to_string()
+            } else {
+                path.lines().next().unwrap_or("npm").trim().to_string()
+            };
+            if !npm_path.is_empty() {
+                println!("[Playwright] 找到 npm 路径: {}", npm_path);
+                return Ok(npm_path);
+            }
+        }
+    }
+
+    // 尝试常见的安装路径（Windows 优先尝试 .cmd）
+    let common_paths = if cfg!(target_os = "windows") {
+        vec![
+            r"C:\Program Files\nodejs\npm.cmd",
+            r"C:\Program Files (x86)\nodejs\npm.cmd",
+            r"C:\Users\%USERNAME%\AppData\Roaming\npm\npm.cmd",
+            r"C:\nvm4w\nodejs\npm.cmd",
+        ]
+    } else {
+        vec![
+            "/usr/local/bin/npm",
+            "/usr/bin/npm",
+            "/opt/homebrew/bin/npm",
+            "/opt/local/bin/npm",
+        ]
+    };
+
+    for path in common_paths {
+        let expanded_path = if cfg!(target_os = "windows") && path.contains("%USERNAME%") {
+            if let Ok(username) = env::var("USERNAME") {
+                path.replace("%USERNAME%", &username)
+            } else {
+                continue;
+            }
+        } else {
+            path.to_string()
+        };
+
+        if std::path::Path::new(&expanded_path).exists() {
+            println!("[Playwright] 找到 npm 路径: {}", expanded_path);
+            return Ok(expanded_path);
+        }
+    }
+
+    // 最后尝试直接使用 npm，让系统自己找
+    println!("[Playwright] 使用默认 npm 命令");
+    Ok("npm".to_string())
+}
+
+/// 获取全局 Playwright 安装目录
+fn get_global_playwright_dir() -> std::path::PathBuf {
+    // 使用应用程序数据目录，而不是临时目录
+    let app_data_dir = if cfg!(target_os = "windows") {
+        env::var("LOCALAPPDATA")
+            .map(|p| std::path::PathBuf::from(p).join("WalletsTool").join("playwright"))
+            .unwrap_or_else(|_| std::env::temp_dir().join("wallets_tool_playwright"))
+    } else {
+        env::var("HOME")
+            .map(|p| std::path::PathBuf::from(p).join(".local").join("share").join("wallets_tool").join("playwright"))
+            .unwrap_or_else(|_| std::env::temp_dir().join("wallets_tool_playwright"))
+    };
+    app_data_dir
+}
+
+/// 检查并安装 Playwright（使用全局缓存）
+async fn ensure_playwright_installed(_temp_dir: &Path) -> Result<(), String> {
+    let global_dir = get_global_playwright_dir();
+    let node_modules_path = global_dir.join("node_modules").join("playwright");
+    let browsers_installed_marker = global_dir.join(".browsers_installed");
+    
+    // 检查是否已完全安装（包括浏览器）
+    let playwright_installed = node_modules_path.exists();
+    let browsers_installed = browsers_installed_marker.exists();
+    
+    if playwright_installed && browsers_installed {
+        println!("[Playwright] 使用已安装的全局 Playwright: {:?}", global_dir);
+        return Ok(());
+    }
+    
+    // 确保全局目录存在
+    tokio::fs::create_dir_all(&global_dir).await
+        .map_err(|e| format!("创建全局目录失败: {}", e))?;
+    
+    // 查找 npm 路径
+    let npm_path = find_npm_path().await?;
+    
+    // 1. 安装 Playwright npm 包（如果还没有安装）
+    if !playwright_installed {
+        println!("[Playwright] 首次初始化，正在安装 Playwright...");
+        println!("[Playwright] 安装目录: {:?}", global_dir);
+        println!("[Playwright] 使用 npm: {}", npm_path);
+        
+        // 初始化 npm 项目
+        let npm_init = Command::new(&npm_path)
+            .arg("init")
+            .arg("-y")
+            .current_dir(&global_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("npm init 失败: {} (路径: {})", e, npm_path))?;
+        
+        if !npm_init.status.success() {
+            let stderr = String::from_utf8_lossy(&npm_init.stderr);
+            return Err(format!("npm init 失败: {} (路径: {})", stderr, npm_path));
+        }
+        
+        // 安装 playwright
+        let npm_install = Command::new(&npm_path)
+            .arg("install")
+            .arg("playwright")
+            .arg("--no-save")
+            .current_dir(&global_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("npm install playwright 失败: {} (路径: {})", e, npm_path))?;
+        
+        if !npm_install.status.success() {
+            let stderr = String::from_utf8_lossy(&npm_install.stderr);
+            return Err(format!("npm install playwright 失败: {} (路径: {})", stderr, npm_path));
+        }
+        
+        println!("[Playwright] npm 包安装完成");
+    }
+    
+    // 2. 安装浏览器（如果还没有安装）
+    if !browsers_installed {
+        println!("[Playwright] 正在安装 Chromium 浏览器...");
+        
+        // 使用 npx playwright install chromium 安装浏览器
+        let npx_cmd = if cfg!(target_os = "windows") { "npx.cmd" } else { "npx" };
+        let browser_install = Command::new(&npx_cmd)
+            .arg("playwright")
+            .arg("install")
+            .arg("chromium")
+            .current_dir(&global_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("安装浏览器失败: {}。请确保网络连接正常", e))?;
+        
+        if !browser_install.status.success() {
+            let stderr = String::from_utf8_lossy(&browser_install.stderr);
+            let stdout = String::from_utf8_lossy(&browser_install.stdout);
+            eprintln!("[Playwright] 浏览器安装 stdout: {}", stdout);
+            eprintln!("[Playwright] 浏览器安装 stderr: {}", stderr);
+            return Err(format!("安装 Chromium 浏览器失败: {}。请检查网络连接或手动运行: npx playwright install chromium", stderr));
+        }
+        
+        // 创建标记文件表示浏览器已安装
+        tokio::fs::write(&browsers_installed_marker, "chromium installed")
+            .await
+            .map_err(|e| format!("创建浏览器安装标记失败: {}", e))?;
+        
+        println!("[Playwright] Chromium 浏览器安装完成");
+    }
+    
+    println!("[Playwright] 初始化完成");
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,6 +260,8 @@ async fn execute_wallet(
     log_prefix: &str,
     cancel_token: &tokio_util::sync::CancellationToken,
 ) -> Result<(), String> {
+    println!("{} 开始构建脚本", log_prefix);
+    
     let script_content = super::build_script_from_config(&session.config, vec![wallet.clone()])
         .map_err(|e| format!("构建脚本失败: {}", e))?;
 
@@ -74,25 +269,51 @@ async fn execute_wallet(
     let temp_dir = std::env::temp_dir().join(format!("wallets_tool_{}", session.id));
     tokio::fs::create_dir_all(&temp_dir).await.map_err(|e| e.to_string())?;
     
+    // 确保 Playwright 已安装
+    if let Err(e) = ensure_playwright_installed(&temp_dir).await {
+        println!("{} Playwright 安装失败: {}", log_prefix, e);
+        return Err(format!("Playwright 安装失败: {}", e));
+    }
+    
     let script_path = temp_dir.join(format!("wallet_{}.js", wallet.id));
     tokio::fs::write(&script_path, script_content).await.map_err(|e| e.to_string())?;
+    
+    println!("{} 脚本已写入: {:?}", log_prefix, script_path);
 
-    // 启动 Node.js 进程
+    // 获取全局 Playwright 目录，用于设置 NODE_PATH
+    let global_playwright_dir = get_global_playwright_dir();
+    let node_modules_path = global_playwright_dir.join("node_modules");
+    
+    // 构建 NODE_PATH 环境变量
+    let mut env_vars = env::vars().collect::<std::collections::HashMap<String, String>>();
+    let existing_node_path = env::var("NODE_PATH").unwrap_or_default();
+    let path_separator = if cfg!(target_os = "windows") { ";" } else { ":" };
+    let new_node_path = if existing_node_path.is_empty() {
+        node_modules_path.to_string_lossy().to_string()
+    } else {
+        format!("{}{}{}", node_modules_path.to_string_lossy(), path_separator, existing_node_path)
+    };
+    env_vars.insert("NODE_PATH".to_string(), new_node_path.clone());
+    
+    println!("{} 正在启动 Node.js 进程...", log_prefix);
+    println!("{} NODE_PATH: {}", log_prefix, new_node_path);
+    
+    // 启动 Node.js 进程，使用全局 Playwright
     let mut child = Command::new("node")
         .arg(&script_path)
+        .env("NODE_PATH", &new_node_path)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("启动 Node.js 失败: {}", e))?;
+    
+    println!("{} Node.js 进程已启动, pid: {:?}", log_prefix, child.id());
 
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
 
-    // 存储进程句柄
-    {
-        let mut handles = session.process_handles.write().await;
-        handles.push(child);
-    }
+    // 注意：我们直接使用 child 变量，不存储到 handles 中
+    // 因为我们需要在 async 块中使用它
 
     // 读取 stdout
     let stdout_handle = {
@@ -149,8 +370,11 @@ async fn execute_wallet(
     // 等待进程完成或超时
     let timeout_duration = Duration::from_secs(session.config.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS));
     
+    println!("{} 等待进程完成, 超时: {}秒", log_prefix, timeout_duration.as_secs());
+    
     let result = tokio::select! {
         _ = cancel_token.cancelled() => {
+            println!("{} 收到取消信号", log_prefix);
             // 取消执行
             let mut handles = session.process_handles.write().await;
             if let Some(mut child) = handles.pop() {
@@ -159,28 +383,33 @@ async fn execute_wallet(
             Err("执行已取消".to_string())
         }
         result = timeout(timeout_duration, async {
+            println!("{} 开始等待 stdout/stderr...", log_prefix);
             stdout_handle.await.ok();
             stderr_handle.await.ok();
+            println!("{} stdout/stderr 已关闭", log_prefix);
             
-            let mut handles = session.process_handles.write().await;
-            if let Some(mut child) = handles.pop() {
-                match child.wait().await {
-                    Ok(status) => {
-                        if status.success() {
-                            Ok(())
-                        } else {
-                            Err(format!("进程退出码: {:?}", status.code()))
-                        }
+            // 直接使用 child 变量，而不是从 handles 中 pop
+            match child.wait().await {
+                Ok(status) => {
+                    println!("{} 进程已结束, 退出码: {:?}", log_prefix, status.code());
+                    if status.success() {
+                        Ok(())
+                    } else {
+                        Err(format!("进程退出码: {:?}", status.code()))
                     }
-                    Err(e) => Err(format!("等待进程失败: {}", e)),
                 }
-            } else {
-                Err("进程句柄丢失".to_string())
+                Err(e) => {
+                    println!("{} 等待进程失败: {}", log_prefix, e);
+                    Err(format!("等待进程失败: {}", e))
+                }
             }
         }) => {
             match result {
                 Ok(r) => r,
-                Err(_) => Err("执行超时".to_string()),
+                Err(_) => {
+                    println!("{} 执行超时", log_prefix);
+                    Err("执行超时".to_string())
+                }
             }
         }
     };
@@ -345,7 +574,7 @@ impl ExecutionManager {
                         ).await;
 
                         // 更新钱包状态
-                        {
+                        let task_result = {
                             let mut status = session.status.write().await;
                             if let Some(wallet_status) = status.wallets.iter_mut().find(|w| w.wallet_id == wallet.id) {
                                 wallet_status.end_time = Some(chrono::Utc::now().timestamp_millis());
@@ -354,19 +583,27 @@ impl ExecutionManager {
                                         wallet_status.status = "completed".to_string();
                                         status.completed_wallets += 1;
                                         println!("{} 执行完成", log_prefix);
+                                        Ok::<(), String>(())
                                     }
                                     Err(e) => {
                                         wallet_status.status = "failed".to_string();
                                         wallet_status.error = Some(e.clone());
                                         status.failed_wallets += 1;
                                         eprintln!("{} 执行失败: {}", log_prefix, e);
+                                        Err(e)
                                     }
                                 }
+                            } else {
+                                Ok(())
                             }
+                        };
+                        
+                        {
+                            let mut status = session.status.write().await;
                             status.running_wallets -= 1;
                         }
 
-                        Ok::<(), String>(())
+                        task_result
                     }
                 })
                 .buffer_unordered(concurrency);
@@ -374,21 +611,32 @@ impl ExecutionManager {
             // 等待所有任务完成
             let results: Vec<Result<(), String>> = stream.collect().await;
 
+            // 计算成功和失败数量
+            let success_count = results.iter().filter(|r| r.is_ok()).count();
+            let fail_count = results.iter().filter(|r| r.is_err()).count();
+            
+            println!("会话执行完成，成功: {}, 失败: {}", success_count, fail_count);
+
             // 更新会话状态为完成
             {
                 let mut status = session_clone.status.write().await;
-                status.status = "completed".to_string();
+                // 如果有失败的任务，标记为 error 状态
+                if fail_count > 0 {
+                    status.status = "error".to_string();
+                } else {
+                    status.status = "completed".to_string();
+                }
                 status.end_time = Some(chrono::Utc::now().timestamp_millis());
             }
 
-            // 清理会话
-            let mut sessions = sessions.write().await;
-            sessions.remove(&session_clone.id);
-
-            println!("会话执行完成，成功: {}, 失败: {}", 
-                results.iter().filter(|r| r.is_ok()).count(),
-                results.iter().filter(|r| r.is_err()).count()
-            );
+            // 延迟清理会话，给前端时间获取最终状态
+            let session_id = session_clone.id.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                let mut sessions = sessions.write().await;
+                sessions.remove(&session_id);
+                println!("会话 {} 已清理", session_id);
+            });
         });
 
         Ok(())

@@ -60,7 +60,7 @@ const selectEcosystem = (eco) => {
 }
 
 // 主题相关
-const isDarkTheme = computed(() => themeStore.currentTheme === 'dark')
+const isDarkTheme = computed(() => themeStore.getEffectiveTheme() === 'dark')
 
 // 关闭页面
 const closeWindow = async () => {

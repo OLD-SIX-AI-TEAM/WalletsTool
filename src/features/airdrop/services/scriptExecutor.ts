@@ -52,6 +52,7 @@ export interface BrowserConfig {
   navigatorOverride: boolean;
   webdriverOverride: boolean;
   headless: boolean;
+  targetUrl?: string;
 }
 
 export interface WalletInfo {
@@ -177,12 +178,27 @@ export class ScriptExecutor {
 
           if (this.onCompleteCallback) {
             const success = status.status === 'completed' && status.failedWallets === 0;
-            const error = status.status === 'error' ? '执行出错' : undefined;
+            let error: string | undefined;
+            if (status.status === 'error') {
+              error = '执行出错';
+            } else if (status.status === 'cancelled') {
+              error = '执行已取消';
+            } else if (status.failedWallets > 0) {
+              // 获取第一个失败的错误信息
+              const failedWallet = status.wallets.find(w => w.status === 'failed' && w.error);
+              error = failedWallet?.error || `执行失败: ${status.failedWallets} 个钱包执行失败`;
+            }
             this.onCompleteCallback(success, error);
           }
         }
       } catch (error) {
         console.error('获取状态失败:', error);
+        // 如果连续获取状态失败，可能是会话已被清理，停止轮询并通知完成
+        this.isRunning = false;
+        this.stopStatusPolling();
+        if (this.onCompleteCallback) {
+          this.onCompleteCallback(false, '获取执行状态失败: ' + String(error));
+        }
       }
     }, interval);
   }

@@ -38,7 +38,7 @@ const dockBackgroundStyle = computed(() => {
   const adjustedOpacity = windowOpacity.value
 
   // 根据当前主题返回对应的颜色
-  const isDark = themeStore.currentTheme === 'dark'
+  const isDark = themeStore.getEffectiveTheme() === 'dark'
   if (isDark) {
     return {
       background: `rgba(60, 55, 50, ${adjustedOpacity})`
@@ -53,7 +53,7 @@ const dockBackgroundStyle = computed(() => {
 // 计算确认弹窗背景样式 - 确保在白色主题下清晰可见
 const confirmModalStyle = computed(() => {
   // 确认弹窗使用纯色背景，不使用透明度
-  const isDark = themeStore.currentTheme === 'dark'
+  const isDark = themeStore.getEffectiveTheme() === 'dark'
   if (isDark) {
     return {
       background: `rgba(60, 55, 50, 0.95)`,
@@ -95,7 +95,7 @@ let updateChecking = ref(false)
 let updateInfo = ref(null)
 
 // 主题切换相关状态 - 使用computed从themeStore获取
-const isDarkTheme = computed(() => themeStore.currentTheme === 'dark')
+const isDarkTheme = computed(() => themeStore.getEffectiveTheme() === 'dark')
 
 onMounted(async () => {
   try {
@@ -1456,9 +1456,13 @@ async function handleMainWindowCloseRequest() {
   transform: translateY(0);
 }
 
-/* 明亮主题确认弹窗 */
+/* 明亮主题确认弹窗 - 使用纯色背景，移除毛玻璃效果 */
 .confirm-modal.light-theme {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.15);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: #ffffff !important;
+  -webkit-mask-image: none !important;
 }
 
 .confirm-modal.light-theme .confirm-title {

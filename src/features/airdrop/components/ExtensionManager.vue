@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, nextTick } from 'vue';
 import { Message, Modal } from '@arco-design/web-vue';
 import {
   IconPlus,
@@ -10,7 +10,8 @@ import {
   IconClose,
   IconSettings,
   IconExport,
-  IconToBottom
+  IconToBottom,
+  IconEdit
 } from '@arco-design/web-vue/es/icon';
 import { extensionService } from '../services/extensionService';
 import { initBrowserAutomationTables } from '../services/browserAutomationService';
@@ -23,10 +24,28 @@ const scanResults = ref([]);
 const showScanModal = ref(false);
 const scanFolderPath = ref('');
 
+// 编辑扫描结果名称相关
+const editingResultPath = ref(null);
+const editResultNameValue = ref('');
+const editResultNameInput = ref(null);
+
+// 编辑已导入插件名称相关
+const editingExtensionId = ref(null);
+const editExtensionNameValue = ref('');
+const editExtensionNameInput = ref(null);
+const extensionIcons = ref({});
+
 const loadExtensions = async () => {
   loading.value = true;
   try {
     extensions.value = await extensionService.getExtensions();
+    // 加载每个插件的图标
+    for (const ext of extensions.value) {
+      const iconPath = await extensionService.getExtensionIcon(ext.path);
+      if (iconPath) {
+        extensionIcons.value[ext.id] = `file://${iconPath}`;
+      }
+    }
   } catch (error) {
     console.error('Failed to load extensions:', error);
     Message.error('加载插件列表失败: ' + error);
@@ -113,7 +132,7 @@ const handleImportExtension = async (result) => {
   try {
     const extension = await extensionService.importExtensionFromFolder(
       result.path,
-      result.manifestInfo?.name || result.name
+      result.customName || result.manifestInfo?.name || result.name
     );
     extensions.value.push(extension);
     Message.success(`插件 "${extension.name}" 导入成功`);
@@ -134,7 +153,7 @@ const handleImportAll = async () => {
     try {
       const extension = await extensionService.importExtensionFromFolder(
         result.path,
-        result.manifestInfo?.name || result.name
+        result.customName || result.manifestInfo?.name || result.name
       );
       if (!extensions.value.find(e => e.path === extension.path)) {
         extensions.value.push(extension);
@@ -148,6 +167,88 @@ const handleImportAll = async () => {
   Message.success(`成功导入 ${successCount} 个插件`);
   showScanModal.value = false;
   scanResults.value = [];
+};
+
+// 开始编辑扫描结果名称
+const startEditResultName = async (result, event) => {
+  event?.stopPropagation();
+  editingResultPath.value = result.path;
+  editResultNameValue.value = result.customName || result.manifestInfo?.name || result.name;
+  await nextTick();
+  const inputEl = Array.isArray(editResultNameInput.value) 
+    ? editResultNameInput.value.find(el => el?.dataset?.path === result.path)
+    : editResultNameInput.value;
+  inputEl?.focus?.();
+  inputEl?.select?.();
+};
+
+// 保存编辑的名称
+const saveEditResultName = (result) => {
+  const trimmedName = editResultNameValue.value.trim();
+  if (trimmedName) {
+    result.customName = trimmedName;
+  }
+  editingResultPath.value = null;
+};
+
+// 取消编辑
+const cancelEditResultName = () => {
+  editingResultPath.value = null;
+};
+
+// 处理键盘事件
+const handleResultNameKeydown = (event, result) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    saveEditResultName(result);
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    cancelEditResultName();
+  }
+};
+
+// 开始编辑已导入插件名称
+const startEditExtensionName = async (extension, event) => {
+  event?.stopPropagation();
+  editingExtensionId.value = extension.id;
+  editExtensionNameValue.value = extension.name;
+  await nextTick();
+  editExtensionNameInput.value?.focus?.();
+  editExtensionNameInput.value?.select?.();
+};
+
+// 保存编辑的插件名称
+const saveEditExtensionName = async (extension) => {
+  const trimmedName = editExtensionNameValue.value.trim();
+  if (trimmedName && trimmedName !== extension.name) {
+    try {
+      const updated = await extensionService.updateExtensionName(extension.id, trimmedName);
+      const index = extensions.value.findIndex(e => e.id === extension.id);
+      if (index !== -1) {
+        extensions.value[index] = updated;
+      }
+      Message.success('插件名称已更新');
+    } catch (error) {
+      Message.error('更新名称失败: ' + error);
+    }
+  }
+  editingExtensionId.value = null;
+};
+
+// 取消编辑插件名称
+const cancelEditExtensionName = () => {
+  editingExtensionId.value = null;
+};
+
+// 处理插件名称编辑键盘事件
+const handleExtensionNameKeydown = (event, extension) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    saveEditExtensionName(extension);
+  } else if (event.key === 'Escape') {
+    event.preventDefault();
+    cancelEditExtensionName();
+  }
 };
 
 const enabledCount = computed(() => extensions.value.filter(e => e.enabled).length);
@@ -183,21 +284,37 @@ onMounted(async () => {
       </div>
       
       <div class="list-content" v-loading="loading">
-        <div 
-          v-for="extension in extensions" 
+        <div
+          v-for="extension in extensions"
           :key="extension.id"
           class="extension-item"
           :class="{ disabled: !extension.enabled }"
         >
           <div class="extension-icon">
-            <icon-settings />
+            <img v-if="extensionIcons[extension.id]" :src="extensionIcons[extension.id]" class="icon-img" />
+            <icon-settings v-else />
           </div>
           <div class="extension-info">
             <div class="extension-name">
-              {{ extension.name }}
+              <template v-if="editingExtensionId === extension.id">
+                <input
+                  ref="editExtensionNameInput"
+                  v-model="editExtensionNameValue"
+                  class="extension-name-edit-input"
+                  @blur="saveEditExtensionName(extension)"
+                  @keydown="(e) => handleExtensionNameKeydown(e, extension)"
+                  @click.stop
+                />
+              </template>
+              <template v-else>
+                <span class="editable-name" @click="(e) => startEditExtensionName(extension, e)" title="点击修改名称">
+                  {{ extension.name }}
+                  <icon-edit class="edit-icon" />
+                </span>
+              </template>
               <span v-if="extension.version" class="version">v{{ extension.version }}</span>
             </div>
-            <div class="extension-desc" v-if="extension.description">
+            <div class="extension-desc" v-if="extension.description && !extension.description.startsWith('__MSG_')">
               {{ extension.description }}
             </div>
             <div class="extension-path" :title="extension.path">
@@ -259,6 +376,7 @@ onMounted(async () => {
             v-model="scanFolderPath" 
             placeholder="选择或输入插件目录路径"
             style="flex: 1"
+            @press-enter="handleScanFolder"
           />
           <a-button type="primary" @click="handleSelectFolder">
             <template #icon><icon-folder /></template>
@@ -303,12 +421,35 @@ onMounted(async () => {
                 <icon-close v-else style="color: var(--color-danger-6)" />
               </div>
               <div class="result-info">
-                <div class="result-name">
-                  {{ result.manifestInfo?.name || result.name }}
-                  <span v-if="result.manifestInfo?.version" class="version">
-                    v{{ result.manifestInfo.version }}
-                  </span>
-                </div>
+                <template v-if="editingResultPath === result.path && result.hasManifest">
+                  <input
+                    :ref="(el) => { if (el) el.dataset.path = result.path }"
+                    v-model="editResultNameValue"
+                    class="result-name-edit-input"
+                    @blur="saveEditResultName(result)"
+                    @keydown="(e) => handleResultNameKeydown(e, result)"
+                    @click.stop
+                  />
+                </template>
+                <template v-else>
+                  <div class="result-name">
+                    <span 
+                      v-if="result.hasManifest" 
+                      class="editable-name"
+                      @click="(e) => startEditResultName(result, e)"
+                      title="点击修改名称"
+                    >
+                      {{ result.customName || result.manifestInfo?.name || result.name }}
+                      <icon-edit class="edit-icon" />
+                    </span>
+                    <span v-else>
+                      {{ result.manifestInfo?.name || result.name }}
+                    </span>
+                    <span v-if="result.manifestInfo?.version" class="version">
+                      v{{ result.manifestInfo.version }}
+                    </span>
+                  </div>
+                </template>
                 <div class="result-path">{{ result.path }}</div>
               </div>
               <a-button 
@@ -425,6 +566,13 @@ onMounted(async () => {
   justify-content: center;
   color: rgb(var(--primary-6));
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.extension-icon .icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .extension-info {
@@ -447,6 +595,43 @@ onMounted(async () => {
   background: var(--color-fill-3);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+.extension-name .editable-name {
+  cursor: pointer;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.extension-name .editable-name:hover {
+  background: var(--color-fill-2);
+}
+
+.extension-name .editable-name:hover .edit-icon {
+  opacity: 1;
+}
+
+.extension-name-edit-input {
+  background: var(--color-bg-1);
+  border: 1px solid rgb(var(--primary-6));
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-1);
+  outline: none;
+  line-height: 1.2;
+  width: 150px;
+}
+
+.extension-name-edit-input:focus {
+  border-color: rgb(var(--primary-6));
+  box-shadow: 0 0 0 2px rgba(var(--primary-6), 0.2);
 }
 
 .extension-desc {
@@ -608,5 +793,49 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.editable-name {
+  cursor: pointer;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.editable-name:hover {
+  background: var(--color-fill-2);
+}
+
+.editable-name:hover .edit-icon {
+  opacity: 1;
+}
+
+.edit-icon {
+  font-size: 12px;
+  color: var(--color-text-3);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.result-name-edit-input {
+  width: 100%;
+  background: var(--color-bg-1);
+  border: 1px solid rgb(var(--primary-6));
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-1);
+  outline: none;
+  line-height: 1.2;
+}
+
+.result-name-edit-input:focus {
+  border-color: rgb(var(--primary-6));
+  box-shadow: 0 0 0 2px rgba(var(--primary-6), 0.2);
 }
 </style>

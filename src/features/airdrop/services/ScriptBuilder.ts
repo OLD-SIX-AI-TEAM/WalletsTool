@@ -39,6 +39,7 @@ export interface BrowserConfig {
   navigator_override: boolean;
   webdriver_override: boolean;
   headless: boolean;
+  target_url?: string;
 }
 
 export interface WalletInfo {

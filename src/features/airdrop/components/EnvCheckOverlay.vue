@@ -12,7 +12,7 @@ import {
 } from '@arco-design/web-vue/es/icon';
 
 const themeStore = useThemeStore();
-const isDarkTheme = computed(() => themeStore.currentTheme === 'dark');
+const isDarkTheme = computed(() => themeStore.getEffectiveTheme() === 'dark');
 
 // 组件状态
 const isChecking = ref(true);
@@ -48,6 +48,24 @@ const emit = defineEmits<{
 
 // 检查环境
 const checkEnvironment = async () => {
+  // 先检查是否有缓存结果
+  const cachedResult = cliCheckService.getCachedResult();
+  if (cachedResult) {
+    // 使用缓存结果，直接显示成功状态
+    tools.value = cachedResult.tools;
+    missingTools.value = cachedResult.tools.filter(t => !t.installed && t.name !== 'Playwright');
+    
+    if (missingTools.value.length === 0) {
+      // 所有工具已安装，直接显示成功
+      isChecking.value = false;
+      checkSuccess.value = true;
+      addLog('使用缓存的环境检查结果');
+      emit('ready');
+      return;
+    }
+  }
+  
+  // 没有缓存或缓存已过期，执行完整检查
   isChecking.value = true;
   checkSuccess.value = false;
   installLogs.value = [];
@@ -57,7 +75,7 @@ const checkEnvironment = async () => {
   
   try {
     // 先获取所有结果
-    const result = await cliCheckService.checkTools(true);
+    const result = await cliCheckService.checkTools(false);
     
     // 逐个显示检查结果，给用户更好的体验
     for (let i = 0; i < requiredToolsList.length; i++) {

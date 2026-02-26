@@ -1,6 +1,81 @@
 use sqlx::SqlitePool;
 use anyhow::Result;
 
+/// 添加增强指纹字段到 browser_profiles 表
+async fn migrate_enhanced_fingerprint_fields(pool: &SqlitePool) -> Result<()> {
+    // 检查 browser_profiles 表是否存在
+    let table_exists: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='browser_profiles'"
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if table_exists == 0 {
+        return Ok(());
+    }
+
+    // 定义需要添加的新字段
+    let new_columns = vec![
+        ("hardware_concurrency", "INTEGER"),
+        ("device_memory", "INTEGER"),
+        ("color_depth", "INTEGER"),
+        ("languages", "TEXT"),
+        ("vendor", "TEXT"),
+        ("gpu_vendor", "TEXT"),
+        ("gpu_renderer", "TEXT"),
+        ("color_scheme", "TEXT"),
+        ("max_touch_points", "INTEGER"),
+        ("has_touch", "BOOLEAN"),
+        ("screen_orientation_angle", "INTEGER"),
+        ("screen_orientation_type", "TEXT"),
+        ("font_family", "TEXT"),
+        ("client_hints_platform", "TEXT"),
+        ("client_hints_platform_version", "TEXT"),
+        ("client_hints_architecture", "TEXT"),
+        ("client_hints_bitness", "TEXT"),
+        ("client_hints_model", "TEXT"),
+        ("client_hints_wow64", "TEXT"),
+        ("fingerprint_hash", "TEXT"),
+        ("platform_name", "TEXT"),
+    ];
+
+    // 获取当前表的列信息
+    let existing_columns: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM pragma_table_info('browser_profiles')"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    // 添加缺失的列
+    for (column_name, column_type) in new_columns {
+        if !existing_columns.iter().any(|c| c == column_name) {
+            println!("添加列 {} 到 browser_profiles 表...", column_name);
+            let sql = format!(
+                "ALTER TABLE browser_profiles ADD COLUMN {} {}",
+                column_name, column_type
+            );
+            sqlx::query(&sql).execute(pool).await?;
+        }
+    }
+
+    // 创建指纹哈希索引
+    let index_exists: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_browser_profiles_fingerprint_hash'"
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if index_exists == 0 {
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_browser_profiles_fingerprint_hash ON browser_profiles(fingerprint_hash)"
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
 /// 检查并修复 device_scale_factor 列类型
 async fn migrate_device_scale_factor(pool: &SqlitePool) -> Result<()> {
     // 检查 browser_profiles 表是否存在
@@ -124,6 +199,9 @@ async fn migrate_device_scale_factor(pool: &SqlitePool) -> Result<()> {
 pub async fn init_airdrop_tables(pool: &SqlitePool) -> Result<()> {
     // 执行迁移：修复 device_scale_factor 列类型
     migrate_device_scale_factor(pool).await?;
+    
+    // 执行迁移：添加增强指纹字段
+    migrate_enhanced_fingerprint_fields(pool).await?;
 
     // 空投钱包表
     sqlx::query(

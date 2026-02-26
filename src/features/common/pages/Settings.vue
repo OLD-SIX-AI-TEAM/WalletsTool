@@ -32,7 +32,14 @@ async function handleHeaderDrag(e) {
 const themeStore = useThemeStore()
 const appWindow = getCurrentWindow()
 
-const isDarkTheme = computed(() => themeStore.currentTheme === 'dark')
+const isDarkTheme = computed(() => themeStore.getEffectiveTheme() === 'dark')
+
+// 主题显示文本
+const themeDisplayText = computed(() => {
+  const theme = themeStore.currentTheme
+  if (theme === 'auto') return '跟随系统'
+  return theme === 'dark' ? '暗黑模式' : '明亮模式'
+})
 
 const runtimeVersion = ref('')
 const appVersion = computed(() => runtimeVersion.value || packageJson.version || '0.0.0')
@@ -417,7 +424,12 @@ async function downloadAndInstallUpdate() {
         <div class="setting-item" @click="toggleTheme">
           <div class="item-left">
             <div class="item-icon theme-icon">
-              <svg v-if="isDarkTheme" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <svg v-if="themeStore.currentTheme === 'auto'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                <line x1="8" y1="21" x2="16" y2="21"/>
+                <line x1="12" y1="17" x2="12" y2="21"/>
+              </svg>
+              <svg v-else-if="isDarkTheme" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
               </svg>
               <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -434,12 +446,12 @@ async function downloadAndInstallUpdate() {
             </div>
             <div class="item-info">
               <div class="item-title">主题模式</div>
-              <div class="item-desc">{{ isDarkTheme ? '暗黑模式' : '明亮模式' }}</div>
+              <div class="item-desc">{{ themeDisplayText }}</div>
             </div>
           </div>
           <div class="item-right">
-            <div class="theme-toggle" :class="{ active: isDarkTheme }">
-              <div class="toggle-thumb"></div>
+            <div class="theme-indicator" :class="themeStore.currentTheme">
+              <span class="indicator-dot"></span>
             </div>
           </div>
         </div>
@@ -906,6 +918,55 @@ async function downloadAndInstallUpdate() {
   transform: translateX(20px);
 }
 
+/* 主题指示器样式 - 支持三种状态 */
+.theme-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  min-width: 60px;
+}
+
+.theme-indicator::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.theme-indicator.auto {
+  background: linear-gradient(135deg, #586cc7, #52c41a);
+  color: #fff;
+}
+
+.theme-indicator.auto::before {
+  background: #fff;
+}
+
+.theme-indicator.dark {
+  background: #586cc7;
+  color: #fff;
+}
+
+.theme-indicator.dark::before {
+  background: #fff;
+}
+
+.theme-indicator.light {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.theme-indicator.light::before {
+  background: rgba(255, 255, 255, 0.8);
+}
+
 .light-theme {
   background: #f5f7fa;
   color: #2c3e50;
@@ -980,5 +1041,25 @@ async function downloadAndInstallUpdate() {
 
 .light-theme .opacity-slider::-moz-range-thumb:hover {
   background: #6b7fd4;
+}
+
+/* 浅色主题下的主题指示器样式 */
+.light-theme .theme-indicator.auto {
+  background: linear-gradient(135deg, #586cc7, #52c41a);
+  color: #fff;
+}
+
+.light-theme .theme-indicator.dark {
+  background: #586cc7;
+  color: #fff;
+}
+
+.light-theme .theme-indicator.light {
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.light-theme .theme-indicator.light::before {
+  background: rgba(0, 0, 0, 0.6);
 }
 </style>

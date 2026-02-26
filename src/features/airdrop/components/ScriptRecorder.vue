@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { Message, Modal } from '@arco-design/web-vue';
 import {
   IconRecord,
@@ -70,6 +70,43 @@ const loadExtensions = async () => {
 
 onMounted(() => {
   loadExtensions();
+});
+
+// 监听录制会话状态，当浏览器关闭时自动停止录制
+watch(recordingSession, async (newSession, oldSession) => {
+  // 当会话状态从 recording 变为 stopped 时，自动处理录制结果
+  if (oldSession?.status === 'recording' && newSession?.status === 'stopped') {
+    console.log('[ScriptRecorder] 检测到浏览器已关闭，自动停止录制');
+    
+    // 浏览器已关闭，需要获取生成的代码并显示保存对话框
+    if (isRecording.value && !generatedCode.value) {
+      try {
+        // 调用 stopRecording 获取生成的代码
+        const code = await recorderService.stopRecording();
+        
+        if (code) {
+          generatedCode.value = code;
+          // 自动生成默认脚本名称
+          const url = new URL(recordUrl.value);
+          const domain = url.hostname.replace(/^www\./, '');
+          const timestamp = new Date().toISOString().slice(0, 10);
+          scriptName.value = `${domain}_${timestamp}`;
+          scriptDescription.value = `录制自 ${recordUrl.value}`;
+          // 显示选择对话框（新建或覆盖）
+          showActionChoiceDialog.value = true;
+          Message.info('检测到浏览器已关闭，录制已自动停止');
+        }
+        
+        isBrowserOpen.value = false;
+        isRecording.value = false;
+      } catch (error) {
+        console.error('[ScriptRecorder] 自动停止录制失败:', error);
+        Message.error('自动停止录制失败: ' + (error.message || error));
+        isRecording.value = false;
+        isBrowserOpen.value = false;
+      }
+    }
+  }
 });
 
 const currentSession = computed(() => recordingSession.value);
@@ -534,11 +571,6 @@ onUnmounted(() => {
       </a-space>
     </div>
 
-    <div class="recorder-status" v-if="isRecording">
-      <a-badge status="processing" text="正在录制中..." />
-      <span class="action-count">已记录 {{ actionCount }} 个操作</span>
-    </div>
-
     <div class="recorder-actions" v-if="recordedActions.length > 0">
       <div class="actions-header">
         <span>录制操作 ({{ actionCount }})</span>
@@ -737,20 +769,6 @@ onUnmounted(() => {
   background: var(--color-bg-1);
 }
 
-.recorder-status {
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: rgba(var(--danger-1), 0.3);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.action-count {
-  font-size: 12px;
-  color: var(--color-text-2);
-}
-
 .recorder-actions {
   flex: 1;
   display: flex;
@@ -774,6 +792,32 @@ onUnmounted(() => {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
+}
+
+/* 自定义滚动条样式 */
+.actions-list::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.actions-list::-webkit-scrollbar-track {
+  background: var(--color-fill-2);
+  border-radius: 4px;
+}
+
+.actions-list::-webkit-scrollbar-thumb {
+  background: var(--color-text-4);
+  border-radius: 4px;
+}
+
+.actions-list::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-3);
+}
+
+/* Firefox */
+.actions-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-text-4) var(--color-fill-2);
 }
 
 .action-item {
@@ -832,6 +876,32 @@ onUnmounted(() => {
   padding: 12px;
 }
 
+/* 自定义滚动条样式 */
+.code-preview::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.code-preview::-webkit-scrollbar-track {
+  background: var(--color-fill-2);
+  border-radius: 4px;
+}
+
+.code-preview::-webkit-scrollbar-thumb {
+  background: var(--color-text-4);
+  border-radius: 4px;
+}
+
+.code-preview::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-3);
+}
+
+/* Firefox */
+.code-preview {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-text-4) var(--color-fill-2);
+}
+
 .code-preview pre {
   margin: 0;
   font-family: 'Fira Code', 'Consolas', monospace;
@@ -880,6 +950,32 @@ onUnmounted(() => {
   border: 1px solid var(--color-border);
   width: 100%;
   box-sizing: border-box;
+}
+
+/* 自定义滚动条样式 */
+.code-preview-mini::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.code-preview-mini::-webkit-scrollbar-track {
+  background: var(--color-fill-2);
+  border-radius: 4px;
+}
+
+.code-preview-mini::-webkit-scrollbar-thumb {
+  background: var(--color-text-4);
+  border-radius: 4px;
+}
+
+.code-preview-mini::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-3);
+}
+
+/* Firefox */
+.code-preview-mini {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-text-4) var(--color-fill-2);
 }
 
 .code-preview-mini pre {

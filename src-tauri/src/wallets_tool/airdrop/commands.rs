@@ -324,8 +324,15 @@ pub async fn create_browser_profile(
             proxy_port, proxy_username, proxy_password, canvas_spoof, webgl_spoof,
             audio_spoof, timezone_spoof, geolocation_spoof, font_spoof, webrtc_spoof,
             navigator_override, webdriver_override, custom_headers, headless,
-            extensions, is_default
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            extensions, is_default,
+            hardware_concurrency, device_memory, color_depth, languages, vendor,
+            gpu_vendor, gpu_renderer, color_scheme, max_touch_points, has_touch,
+            screen_orientation_angle, screen_orientation_type, font_family,
+            client_hints_platform, client_hints_platform_version, client_hints_architecture,
+            client_hints_bitness, client_hints_model, client_hints_wow64,
+            fingerprint_hash, platform_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING *
         "#
     )
@@ -355,6 +362,28 @@ pub async fn create_browser_profile(
     .bind(request.headless.unwrap_or(false))
     .bind(&request.extensions)
     .bind(request.is_default.unwrap_or(false))
+    // 增强指纹字段
+    .bind(request.hardware_concurrency)
+    .bind(request.device_memory)
+    .bind(request.color_depth)
+    .bind(&request.languages)
+    .bind(&request.vendor)
+    .bind(&request.gpu_vendor)
+    .bind(&request.gpu_renderer)
+    .bind(&request.color_scheme)
+    .bind(request.max_touch_points)
+    .bind(request.has_touch)
+    .bind(request.screen_orientation_angle)
+    .bind(&request.screen_orientation_type)
+    .bind(&request.font_family)
+    .bind(&request.client_hints_platform)
+    .bind(&request.client_hints_platform_version)
+    .bind(&request.client_hints_architecture)
+    .bind(&request.client_hints_bitness)
+    .bind(&request.client_hints_model)
+    .bind(&request.client_hints_wow64)
+    .bind(&request.fingerprint_hash)
+    .bind(&request.platform_name)
     .fetch_one(&*pool)
     .await
     .map_err(|e| format!("创建环境配置失败: {}", e))?;
@@ -397,6 +426,27 @@ pub async fn update_browser_profile(
             headless = COALESCE(?, headless),
             extensions = COALESCE(?, extensions),
             is_default = COALESCE(?, is_default),
+            hardware_concurrency = COALESCE(?, hardware_concurrency),
+            device_memory = COALESCE(?, device_memory),
+            color_depth = COALESCE(?, color_depth),
+            languages = COALESCE(?, languages),
+            vendor = COALESCE(?, vendor),
+            gpu_vendor = COALESCE(?, gpu_vendor),
+            gpu_renderer = COALESCE(?, gpu_renderer),
+            color_scheme = COALESCE(?, color_scheme),
+            max_touch_points = COALESCE(?, max_touch_points),
+            has_touch = COALESCE(?, has_touch),
+            screen_orientation_angle = COALESCE(?, screen_orientation_angle),
+            screen_orientation_type = COALESCE(?, screen_orientation_type),
+            font_family = COALESCE(?, font_family),
+            client_hints_platform = COALESCE(?, client_hints_platform),
+            client_hints_platform_version = COALESCE(?, client_hints_platform_version),
+            client_hints_architecture = COALESCE(?, client_hints_architecture),
+            client_hints_bitness = COALESCE(?, client_hints_bitness),
+            client_hints_model = COALESCE(?, client_hints_model),
+            client_hints_wow64 = COALESCE(?, client_hints_wow64),
+            fingerprint_hash = COALESCE(?, fingerprint_hash),
+            platform_name = COALESCE(?, platform_name),
             updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
         RETURNING *
@@ -428,6 +478,28 @@ pub async fn update_browser_profile(
     .bind(request.headless)
     .bind(&request.extensions)
     .bind(request.is_default)
+    // 增强指纹字段
+    .bind(request.hardware_concurrency)
+    .bind(request.device_memory)
+    .bind(request.color_depth)
+    .bind(&request.languages)
+    .bind(&request.vendor)
+    .bind(&request.gpu_vendor)
+    .bind(&request.gpu_renderer)
+    .bind(&request.color_scheme)
+    .bind(request.max_touch_points)
+    .bind(request.has_touch)
+    .bind(request.screen_orientation_angle)
+    .bind(&request.screen_orientation_type)
+    .bind(&request.font_family)
+    .bind(&request.client_hints_platform)
+    .bind(&request.client_hints_platform_version)
+    .bind(&request.client_hints_architecture)
+    .bind(&request.client_hints_bitness)
+    .bind(&request.client_hints_model)
+    .bind(&request.client_hints_wow64)
+    .bind(&request.fingerprint_hash)
+    .bind(&request.platform_name)
     .bind(request.id)
     .fetch_one(&*pool)
     .await
@@ -1516,7 +1588,12 @@ pub async fn scan_extension_folder(
     log::info!("Path 对象: {:?}", path);
     log::info!("路径是否存在: {}", path.exists());
     log::info!("是否是目录: {}", path.is_dir());
-    log::info!("绝对路径: {:?}", path.canonicalize());
+    
+    // 尝试获取绝对路径，如果失败也继续
+    match path.canonicalize() {
+        Ok(abs_path) => log::info!("绝对路径: {:?}", abs_path),
+        Err(e) => log::warn!("获取绝对路径失败: {}，将继续使用原始路径", e),
+    }
 
     if !path.exists() {
         log::error!("目录不存在: {}", folder_path);
@@ -1531,28 +1608,75 @@ pub async fn scan_extension_folder(
 
     // 首先检查当前目录是否直接包含 manifest.json（单层结构）
     let direct_manifest = path.join("manifest.json");
+    let direct_manifest_str = direct_manifest.to_string_lossy().to_string();
     log::info!("检查直接 manifest.json: {:?}", direct_manifest);
-    log::info!("直接 manifest 是否存在: {}", direct_manifest.exists());
+    log::info!("manifest.json 路径字符串: {}", direct_manifest_str);
+    log::info!("直接 manifest 是否存在 (Path.exists): {}", direct_manifest.exists());
+    
+    // 尝试读取目录内容，确认是否有权限问题
+    match fs::read_dir(path) {
+        Ok(entries) => {
+            let entries: Vec<_> = entries.collect();
+            log::info!("目录中的条目数: {}", entries.len());
+            for (i, entry) in entries.iter().enumerate() {
+                match entry {
+                    Ok(e) => {
+                        let file_name = e.file_name();
+                        let file_name_str = file_name.to_string_lossy();
+                        log::info!("  [{}] 文件名: {:?}, 路径: {:?}", i, file_name_str, e.path());
+                        // 特别检查 manifest.json
+                        if file_name_str == "manifest.json" {
+                            log::info!("  [{}] ******* 找到 manifest.json! *******", i);
+                        }
+                    }
+                    Err(e) => log::warn!("  [{}] 读取条目失败: {}", i, e),
+                }
+            }
+        }
+        Err(e) => log::error!("读取目录内容失败: {}", e),
+    }
 
-    if direct_manifest.exists() {
+    // 使用 metadata 检查文件是否存在（更可靠的方式）
+    let manifest_exists = match fs::metadata(&direct_manifest) {
+        Ok(metadata) => {
+            log::info!("manifest.json metadata: is_file={}, len={}", metadata.is_file(), metadata.len());
+            metadata.is_file()
+        }
+        Err(e) => {
+            log::warn!("无法获取 manifest.json metadata: {}，路径: {:?}", e, direct_manifest);
+            false
+        }
+    };
+    
+    if manifest_exists || direct_manifest.exists() {
         log::info!("找到直接 manifest.json: {:?}", direct_manifest);
         let name = path.file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("Unknown")
             .to_string();
 
-        let manifest_info = if let Ok(content) = fs::read_to_string(&direct_manifest) {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                Some(ManifestInfo {
-                    name: json.get("name").and_then(|v| v.as_str()).map(String::from),
-                    version: json.get("version").and_then(|v| v.as_str()).map(String::from),
-                    description: json.get("description").and_then(|v| v.as_str()).map(String::from),
-                })
-            } else {
+        let manifest_info = match fs::read_to_string(&direct_manifest) {
+            Ok(content) => {
+                log::info!("成功读取 manifest.json，内容长度: {} 字节", content.len());
+                match serde_json::from_str::<serde_json::Value>(&content) {
+                    Ok(json) => {
+                        log::info!("成功解析 manifest.json");
+                        Some(ManifestInfo {
+                            name: json.get("name").and_then(|v| v.as_str()).map(String::from),
+                            version: json.get("version").and_then(|v| v.as_str()).map(String::from),
+                            description: json.get("description").and_then(|v| v.as_str()).map(String::from),
+                        })
+                    }
+                    Err(e) => {
+                        log::warn!("解析 manifest.json 失败: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("读取 manifest.json 失败: {}", e);
                 None
             }
-        } else {
-            None
         };
 
         results.push(ExtensionFolder {

@@ -41,7 +41,8 @@ import {
   Popover,
   Tree,
   List,
-  ListItem
+  ListItem,
+  Icon
 } from '@arco-design/web-vue';
 import '@arco-design/web-vue/dist/arco.css';
 import "./style.css";
@@ -143,6 +144,7 @@ app.use(Popover)
 app.use(Tree)
 app.use(List)
 app.use(ListItem)
+app.use(Icon)
 
 app.use(PrimeVue);
 app.component('VirtualScroller', VirtualScroller)

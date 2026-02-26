@@ -13,11 +13,12 @@ export interface RecordingSession {
 }
 
 export interface RecordedAction {
-  type: 'click' | 'fill' | 'navigate' | 'select' | 'hover' | 'screenshot' | 'upload' | 'evaluate';
+  type: 'click' | 'fill' | 'navigate' | 'select' | 'hover' | 'screenshot' | 'upload' | 'evaluate' | 'mousemove' | 'scroll' | 'press' | 'newPage';
   selector?: string;
   value?: string;
   timestamp: Date;
   description: string;
+  pageUrl?: string;
 }
 
 export interface ProxyConfig {
@@ -54,6 +55,7 @@ interface BackendRecordedAction {
   value?: string;
   timestamp: number;
   description: string;
+  page_url?: string;
 }
 
 class PlaywrightRecorderBridge {
@@ -156,15 +158,18 @@ class PlaywrightRecorderBridge {
             selector: action.selector,
             value: action.value,
             timestamp: new Date(action.timestamp),
-            description: action.description
+            description: action.description,
+            pageUrl: action.page_url
           }));
 
           recordingActions.value = this.currentSession.actions;
 
-          // 如果会话已停止，停止轮询
-          if (session.status === 'stopped') {
-            this.stopPolling();
+          // 如果会话已停止，停止轮询并更新状态
+          if (session.status === 'stopped' && this.currentSession.status !== 'stopped') {
+            console.log('[Recorder] 检测到会话已停止，更新状态');
             this.currentSession.status = 'stopped';
+            recordingSession.value = { ...this.currentSession };
+            this.stopPolling();
           }
         }
       } catch (error) {

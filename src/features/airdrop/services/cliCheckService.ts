@@ -12,16 +12,66 @@ export interface CliCheckResult {
   tools: CliToolStatus[];
 }
 
+interface CachedData {
+  result: CliCheckResult;
+  timestamp: number;
+}
+
+const CACHE_KEY = 'wallets_tool_env_check_cache';
+const CACHE_DURATION = 86400000; // 24小时缓存（一天）
+
 class CliCheckService {
   private cachedResult: CliCheckResult | null = null;
   private lastCheckTime: number = 0;
-  private readonly CACHE_DURATION = 60000; // 1分钟缓存
+
+  constructor() {
+    // 从 localStorage 加载缓存
+    this.loadCacheFromStorage();
+  }
+
+  // 从 localStorage 加载缓存
+  private loadCacheFromStorage(): void {
+    try {
+      const stored = localStorage.getItem(CACHE_KEY);
+      if (stored) {
+        const data: CachedData = JSON.parse(stored);
+        const now = Date.now();
+        if (now - data.timestamp < CACHE_DURATION) {
+          this.cachedResult = data.result;
+          this.lastCheckTime = data.timestamp;
+          console.log('[CliCheckService] 从 localStorage 加载缓存成功');
+        } else {
+          console.log('[CliCheckService] 缓存已过期');
+          localStorage.removeItem(CACHE_KEY);
+        }
+      }
+    } catch (error) {
+      console.error('[CliCheckService] 加载缓存失败:', error);
+    }
+  }
+
+  // 保存缓存到 localStorage
+  private saveCacheToStorage(): void {
+    try {
+      if (this.cachedResult && this.lastCheckTime > 0) {
+        const data: CachedData = {
+          result: this.cachedResult,
+          timestamp: this.lastCheckTime
+        };
+        localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+        console.log('[CliCheckService] 缓存已保存到 localStorage');
+      }
+    } catch (error) {
+      console.error('[CliCheckService] 保存缓存失败:', error);
+    }
+  }
 
   async checkTools(forceRefresh = false): Promise<CliCheckResult> {
-    // 检查缓存
+    // 检查内存缓存
     if (!forceRefresh && this.cachedResult) {
       const now = Date.now();
-      if (now - this.lastCheckTime < this.CACHE_DURATION) {
+      if (now - this.lastCheckTime < CACHE_DURATION) {
+        console.log('[CliCheckService] 使用内存缓存');
         return this.cachedResult;
       }
     }
@@ -30,6 +80,8 @@ class CliCheckService {
       const result = await invoke<CliCheckResult>('check_cli_tools');
       this.cachedResult = result;
       this.lastCheckTime = Date.now();
+      // 保存到 localStorage
+      this.saveCacheToStorage();
       return result;
     } catch (error) {
       console.error('检查 CLI 工具失败:', error);
@@ -91,6 +143,37 @@ class CliCheckService {
   clearCache(): void {
     this.cachedResult = null;
     this.lastCheckTime = 0;
+    localStorage.removeItem(CACHE_KEY);
+    console.log('[CliCheckService] 缓存已清除');
+  }
+
+  // 获取缓存的结果（如果缓存有效）
+  getCachedResult(): CliCheckResult | null {
+    // 先检查内存缓存
+    if (this.cachedResult) {
+      const now = Date.now();
+      if (now - this.lastCheckTime < CACHE_DURATION) {
+        return this.cachedResult;
+      }
+    }
+    
+    // 内存缓存无效，尝试从 localStorage 加载
+    this.loadCacheFromStorage();
+    
+    // 再次检查内存缓存
+    if (this.cachedResult) {
+      const now = Date.now();
+      if (now - this.lastCheckTime < CACHE_DURATION) {
+        return this.cachedResult;
+      }
+    }
+    
+    return null;
+  }
+
+  // 检查是否有有效的缓存
+  hasValidCache(): boolean {
+    return this.getCachedResult() !== null;
   }
 }
 

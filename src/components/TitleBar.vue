@@ -94,7 +94,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, nextTick, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Notification } from '@arco-design/web-vue'
 import { useThemeStore } from '@/stores'
@@ -135,7 +135,7 @@ const emit = defineEmits(['before-close', 'title-changed'])
 const themeStore = useThemeStore()
 const currentTheme = computed(() => themeStore.currentTheme)
 const isDarkTheme = computed({
-  get: () => currentTheme.value === 'dark',
+  get: () => themeStore.getEffectiveTheme() === 'dark',
   set: (value) => {
   }
 })
@@ -330,12 +330,19 @@ async function closeWindow() {
   }
 }
 
+let unlistenResize = null
+
 onMounted(async () => {
   const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
   if (isTauri) {
     try {
       const currentWindow = getCurrentWindow()
       isMaximized.value = await currentWindow.isMaximized()
+      
+      // 监听窗口大小变化，同步最大化状态
+      unlistenResize = await currentWindow.onResized(async () => {
+        isMaximized.value = await currentWindow.isMaximized()
+      })
       
       await loadCustomTitle()
     } catch (error) {
@@ -346,6 +353,12 @@ onMounted(async () => {
 
 watch(() => props.title, (newTitle) => {
   if (!customTitle.value && newTitle) {
+  }
+})
+
+onUnmounted(() => {
+  if (unlistenResize) {
+    unlistenResize()
   }
 })
 </script>

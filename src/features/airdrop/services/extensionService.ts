@@ -140,5 +140,30 @@ export const extensionService = {
   async getExtensionPaths(): Promise<string[]> {
     const enabled = await this.getEnabledExtensions();
     return enabled.map(ext => ext.path);
+  },
+
+  async updateExtensionName(id: number, name: string): Promise<BrowserExtension> {
+    return await this.updateExtension({ id, name });
+  },
+
+  async getExtensionIcon(extensionPath: string): Promise<string | null> {
+    try {
+      // 尝试查找常见的图标文件
+      const iconNames = ['icon.png', 'icon128.png', 'icon48.png', 'icon32.png', 'icon16.png', 'logo.png'];
+      for (const iconName of iconNames) {
+        const iconPath = await join(extensionPath, iconName);
+        try {
+          const iconExists = await exists(iconPath);
+          if (iconExists) {
+            return iconPath;
+          }
+        } catch (e) {
+          // 继续尝试下一个
+        }
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
   }
 };
