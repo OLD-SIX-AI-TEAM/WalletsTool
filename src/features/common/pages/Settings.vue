@@ -48,6 +48,13 @@ const databaseLoading = ref(false)
 const databaseStatus = ref(null)
 const updateChecking = ref(false)
 const updateInfo = ref(null)
+const hasUpdate = ref(false)
+const ignoredVersion = ref('')
+
+const STORAGE_KEYS = {
+  lastCheckAt: 'walletstool:update:lastCheckAt',
+  ignoreVersion: 'walletstool:update:ignoreVersion',
+}
 
 // 窗口透明度设置
 const windowOpacity = ref(1.0)
@@ -145,27 +152,6 @@ async function fetchCurrentOpacity() {
     opacityLoading.value = false
   }
 }
-
-onMounted(async () => {
-  try {
-    const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
-    if (isTauri) runtimeVersion.value = await getVersion()
-    
-    // 加载透明度设置
-    loadOpacitySetting()
-    await fetchCurrentOpacity()
-    
-    // 加载置顶设置
-    loadAlwaysOnTopSetting()
-    
-    await nextTick()
-    requestAnimationFrame(() => {
-      appWindow.emit('page-loaded')
-    })
-  } catch (error) {
-    console.error('Failed to get app version:', error)
-  }
-})
 
 function toggleTheme() {
   themeStore.toggleTheme()
@@ -309,6 +295,47 @@ async function refreshPageData() {
   }
 }
 
+// 获取被忽略的版本
+function getIgnoredVersion() {
+  return localStorage.getItem(STORAGE_KEYS.ignoreVersion) || ''
+}
+
+// 忽略当前版本
+function ignoreCurrentVersion() {
+  if (updateInfo.value?.latest_version) {
+    localStorage.setItem(STORAGE_KEYS.ignoreVersion, updateInfo.value.latest_version)
+    hasUpdate.value = false
+  }
+}
+
+// 页面加载时检查是否有已保存的更新状态
+onMounted(async () => {
+  try {
+    const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
+    if (isTauri) runtimeVersion.value = await getVersion()
+    
+    // 加载透明度设置
+    loadOpacitySetting()
+    await fetchCurrentOpacity()
+    
+    // 加载置顶设置
+    loadAlwaysOnTopSetting()
+    
+    // 检查是否有已保存的更新状态
+    const savedIgnored = getIgnoredVersion()
+    if (savedIgnored) {
+      ignoredVersion.value = savedIgnored
+    }
+    
+    await nextTick()
+    requestAnimationFrame(() => {
+      appWindow.emit('page-loaded')
+    })
+  } catch (error) {
+    console.error('Failed to get app version:', error)
+  }
+})
+
 async function checkForUpdate() {
   const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
   console.log('[checkForUpdate] 开始检查更新, isTauri:', isTauri, 'appVersion:', appVersion.value)
@@ -332,35 +359,51 @@ async function checkForUpdate() {
     updateInfo.value = result
 
     if (result.has_update) {
-      console.log('[checkForUpdate] 发现新版本，显示确认对话框')
-      Modal.confirm({
-        title: '发现新版本',
-        content: () => h('div', { style: 'max-height: 300px; overflow-y: auto;' }, [
-          h('div', { style: 'margin-bottom: 12px;' }, [
-            h('span', { style: 'color: #666;' }, '当前版本: '),
-            h('span', { style: 'font-weight: 600; color: #586cc7;' }, result.current_version)
+      const ignored = getIgnoredVersion()
+      if (ignored && ignored === result.latest_version) {
+        // 版本已被忽略，显示提示
+        hasUpdate.value = false
+        Notification.info({ 
+          title: '检查更新', 
+          content: `v${result.latest_version} 已是最新版本（已忽略）`, 
+          position: 'top' 
+        })
+      } else {
+        hasUpdate.value = true
+        console.log('[checkForUpdate] 发现新版本，显示确认对话框')
+        Modal.confirm({
+          title: '发现新版本',
+          content: () => h('div', { style: 'max-height: 300px; overflow-y: auto;' }, [
+            h('div', { style: 'margin-bottom: 12px;' }, [
+              h('span', { style: 'color: #666;' }, '当前版本: '),
+              h('span', { style: 'font-weight: 600; color: #586cc7;' }, result.current_version)
+            ]),
+            h('div', { style: 'margin-bottom: 12px;' }, [
+              h('span', { style: 'color: #666;' }, '最新版本: '),
+              h('span', { style: 'font-weight: 600; color: #52c41a;' }, result.latest_version)
+            ]),
+            result.published_at ? h('div', { style: 'margin-bottom: 12px; font-size: 12px; color: #999;' },
+              `发布时间: ${result.published_at}`) : null,
+            h('div', { style: 'margin-top: 16px;' }, [
+              h('div', { style: 'font-weight: 600; margin-bottom: 8px;' }, '更新内容:'),
+              h('div', {
+                style: 'background: rgba(88, 108, 199, 0.05); padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.6; white-space: pre-wrap;'
+              }, result.release_notes || '暂无更新说明')
+            ])
           ]),
-          h('div', { style: 'margin-bottom: 12px;' }, [
-            h('span', { style: 'color: #666;' }, '最新版本: '),
-            h('span', { style: 'font-weight: 600; color: #52c41a;' }, result.latest_version)
-          ]),
-          result.published_at ? h('div', { style: 'margin-bottom: 12px; font-size: 12px; color: #999;' },
-            `发布时间: ${result.published_at}`) : null,
-          h('div', { style: 'margin-top: 16px;' }, [
-            h('div', { style: 'font-weight: 600; margin-bottom: 8px;' }, '更新内容:'),
-            h('div', {
-              style: 'background: rgba(88, 108, 199, 0.05); padding: 12px; border-radius: 8px; font-size: 13px; line-height: 1.6; white-space: pre-wrap;'
-            }, result.release_notes || '暂无更新说明')
-          ])
-        ]),
-        okText: '下载并安装',
-        cancelText: '稍后提醒',
-        width: 380,
-        onOk: async () => {
-          await downloadAndInstallUpdate()
-        }
-      })
+          okText: '下载并安装',
+          cancelText: '稍后提醒',
+          width: 380,
+          onOk: async () => {
+            await downloadAndInstallUpdate()
+          },
+          onCancel: () => {
+            // 用户选择稍后提醒，不忽略版本，保持hasUpdate为true
+          }
+        })
+      }
     } else {
+      hasUpdate.value = false
       console.log('[checkForUpdate] 当前已是最新版本，显示通知')
       Notification.success({ title: '检查更新', content: `当前版本 v${result.current_version} 已是最新版本`, position: 'top' })
       console.log('[checkForUpdate] 通知已发送')
@@ -604,11 +647,17 @@ async function downloadAndInstallUpdate() {
               </svg>
             </div>
             <div class="item-info">
-              <div class="item-title">检查更新</div>
-              <div class="item-desc">检查是否有新版本可用</div>
+              <div class="item-title">
+                检查更新
+                <span v-if="hasUpdate" class="update-badge">NEW</span>
+              </div>
+              <div class="item-desc">
+                {{ hasUpdate ? `发现新版本 v${updateInfo?.latest_version}` : '检查是否有新版本可用' }}
+              </div>
             </div>
           </div>
           <div class="item-right">
+            <span v-if="hasUpdate" class="update-dot"></span>
             <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M9 18l6-6-6-6"/>
             </svg>
@@ -792,6 +841,41 @@ async function downloadAndInstallUpdate() {
 .update-icon {
   background: linear-gradient(135deg, #722ed1, #531dab);
   color: #fff;
+}
+
+.update-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  margin-left: 8px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 4px;
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+.update-dot {
+  width: 8px;
+  height: 8px;
+  background: #ef4444;
+  border-radius: 50%;
+  margin-right: 8px;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.8;
+  }
 }
 
 .opacity-icon {

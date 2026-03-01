@@ -93,6 +93,15 @@ const appVersion = computed(() => runtimeVersion.value || packageJson.version ||
 // 更新检查相关状态
 let updateChecking = ref(false)
 let updateInfo = ref(null)
+let hasUpdate = ref(false)
+let ignoredVersion = ref('')
+
+const STORAGE_KEYS = {
+  lastCheckAt: 'walletstool:update:lastCheckAt',
+  ignoreVersion: 'walletstool:update:ignoreVersion',
+}
+
+const CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000
 
 // 主题切换相关状态 - 使用computed从themeStore获取
 const isDarkTheme = computed(() => themeStore.getEffectiveTheme() === 'dark')
@@ -185,6 +194,11 @@ onMounted(async () => {
 
   // 注意：主窗口的显示由 SplashScreen 组件控制，这里不需要再次调用 show()
   // 启动窗口会在加载完成后自动显示主窗口并关闭自己
+
+  // 启动时检查更新（仅显示badge，不弹窗）
+  setTimeout(() => {
+    checkForUpdateSilent()
+  }, 2000)
 })
 
 // 组件卸载时清理事件监听器
@@ -656,7 +670,73 @@ async function exportDatabaseToInitSql() {
   }
 }
 
-// 检查更新
+// 检查是否应该检查更新（根据时间间隔）
+function shouldCheckUpdate() {
+  const lastCheckAtRaw = localStorage.getItem(STORAGE_KEYS.lastCheckAt)
+  const lastCheckAt = lastCheckAtRaw ? Number(lastCheckAtRaw) : 0
+  if (!Number.isFinite(lastCheckAt)) return true
+  return Date.now() - lastCheckAt >= CHECK_INTERVAL_MS
+}
+
+// 设置最后检查时间
+function setLastCheckNow() {
+  localStorage.setItem(STORAGE_KEYS.lastCheckAt, String(Date.now()))
+}
+
+// 获取被忽略的版本
+function getIgnoredVersion() {
+  return localStorage.getItem(STORAGE_KEYS.ignoreVersion) || ''
+}
+
+// 忽略当前版本
+function ignoreCurrentVersion() {
+  if (updateInfo.value?.latest_version) {
+    localStorage.setItem(STORAGE_KEYS.ignoreVersion, updateInfo.value.latest_version)
+    hasUpdate.value = false
+  }
+}
+
+// 静默检查更新（仅设置badge，不弹窗）
+async function checkForUpdateSilent() {
+  try {
+    const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
+    if (!isTauri) return
+
+    // 检查时间间隔
+    if (!shouldCheckUpdate()) {
+      // 检查是否有已保存的更新但未忽略
+      const savedIgnored = getIgnoredVersion()
+      // 如果有已忽略的，保持hasUpdate为false
+      // 如果没有，可能需要重新检查
+      return
+    }
+
+    const result = await invoke('check_update', {
+      currentVersion: appVersion.value
+    })
+
+    setLastCheckNow()
+
+    if (result.has_update) {
+      const ignored = getIgnoredVersion()
+      // 如果当前版本已被忽略，不显示badge
+      if (ignored && ignored === result.latest_version) {
+        hasUpdate.value = false
+      } else {
+        hasUpdate.value = true
+        updateInfo.value = result
+      }
+    } else {
+      hasUpdate.value = false
+    }
+
+  } catch (error) {
+    console.error('静默检查更新失败:', error)
+    // 静默失败，不显示任何提示
+  }
+}
+
+// 手动检查更新（显示结果）
 async function checkForUpdate() {
   try {
     updateChecking.value = true
@@ -675,9 +755,11 @@ async function checkForUpdate() {
       currentVersion: appVersion.value
     })
 
+    setLastCheckNow()
     updateInfo.value = result
 
     if (result.has_update) {
+      hasUpdate.value = true
       // 显示更新对话框
       Modal.confirm({
         title: '发现新版本',
@@ -706,9 +788,13 @@ async function checkForUpdate() {
         width: Math.min(420, Math.max(320, Math.floor(window.innerWidth * 0.92))),
         onOk: async () => {
           await downloadAndInstallUpdate()
+        },
+        onCancel: () => {
+          // 用户选择稍后提醒，不忽略版本
         }
       })
     } else {
+      hasUpdate.value = false
       Notification.success({
         title: '检查更新完成',
         content: `当前版本 v${result.current_version} 已是最新版本`,
@@ -1055,6 +1141,8 @@ async function handleMainWindowCloseRequest() {
               </div>
             </div>
           </div>
+          <!-- 更新角标 NEW -->
+          <span v-if="hasUpdate" class="dock-corner-badge">NEW</span>
           <div class="dock-label">设置</div>
         </div>
 
@@ -1305,6 +1393,35 @@ async function handleMainWindowCloseRequest() {
 
 .dock-badge.building svg {
   display: none;
+}
+
+/* 红色角标 NEW */
+.dock-corner-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  padding: 2px 5px;
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 4px;
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.5);
+  animation: cornerBadgePulse 2s ease-in-out infinite;
+  letter-spacing: 0.5px;
+}
+
+@keyframes cornerBadgePulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.5);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow: 0 3px 12px rgba(239, 68, 68, 0.7);
+  }
 }
 
 /* 标签文字 */
