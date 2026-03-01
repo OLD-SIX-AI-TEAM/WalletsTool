@@ -420,9 +420,9 @@ onMounted(async () => {
   } catch (e) {
     console.log('Tables may already exist:', e);
   }
-  // 检查钱包数据库是否已初始化
+  // 检查钱包管理是否已初始化（只需检查是否设置过密码，不需要当前解锁）
   try {
-    walletDbReady.value = await invoke('is_wallet_manager_ready');
+    walletDbReady.value = await invoke('is_wallet_manager_initialized');
   } catch (e) {
     walletDbReady.value = false;
   }

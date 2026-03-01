@@ -347,19 +347,36 @@ function goPage(pageName) {
       const firstEntry = existingWindows.entries().next().value
       if (firstEntry) {
         const [existingLabel, existingWebview] = firstEntry
-        // 将已存在的窗口置顶显示
-        existingWebview.setFocus().catch(err => {
-          console.error('Failed to focus wallet-manager window:', err)
-        })
-        existingWebview.show().catch(err => {
-          console.error('Failed to show wallet-manager window:', err)
-        })
-        console.log('[Home] wallet-manager window already exists, bringing to front:', existingLabel)
-        return
+        // 检查窗口是否还实际存在
+        const isValid = existingWebview && typeof existingWebview.setFocus === 'function'
+        if (isValid) {
+          // 尝试将已存在的窗口置顶显示
+          existingWebview.setFocus().then(() => {
+            return existingWebview.show()
+          }).then(() => {
+            console.log('[Home] wallet-manager window already exists, bringing to front:', existingLabel)
+          }).catch(err => {
+            console.warn('[Home] wallet-manager window no longer valid, creating new one:', err)
+            // 从列表中移除无效的窗口
+            windowListObj.value['wallet-manager'].delete(existingLabel)
+            // 继续创建新窗口
+            createNewWindow(pageName)
+          })
+          return
+        } else {
+          // 窗口对象无效，清理并创建新窗口
+          console.warn('[Home] wallet-manager window object invalid, cleaning up')
+          windowListObj.value['wallet-manager'].delete(existingLabel)
+        }
       }
     }
   }
 
+  createNewWindow(pageName)
+}
+
+// 创建新窗口
+function createNewWindow(pageName) {
   try {
     // 正确实现多窗口
     const count = windowCount.value[pageName] ?? 0
@@ -369,14 +386,14 @@ function goPage(pageName) {
       windowListObj.value[pageName] = new Map()
     }
     const windowLabel = WINDOW_CONFIG.generateLabel(pageName, newCount)
-    
+
     // 修改：指向 entry 页面，而不是具体的 eth/sol 页面
     const windowUrl = pageName === 'airdrop-browser'
       ? `/#/airdrop/browser?count=${newCount}`
       : pageName === 'wallet-manager'
         ? `/#/wallet-manager?count=${newCount}`
         : `/#/entry?target=${pageName}&count=${newCount}`
-    
+
     // 生成窗口标题：统一格式 "WalletsTool - {图标} {功能名} [{序号}]"
     const moduleIcons = { transfer: '💸', balance: '💰', monitor: '👁️', 'airdrop-browser': '🤖', 'wallet-manager': '🔐' }
     const moduleNames = { transfer: '批量转账', balance: '余额查询', monitor: '链上监控', 'airdrop-browser': '浏览器自动化', 'wallet-manager': '钱包管理' }
@@ -418,11 +435,13 @@ function goPage(pageName) {
     })
 
     webview.once('tauri://destroyed', function (event) {
+      console.log('[Home] window destroyed:', windowLabel, event)
       if (fallbackShowTimer) {
         clearTimeout(fallbackShowTimer)
         fallbackShowTimer = null
       }
-      windowListObj.value[pageName].delete(event.windowLabel)
+      // 使用创建时的 windowLabel 而不是 event.windowLabel
+      windowListObj.value[pageName].delete(windowLabel)
       if (windowListObj.value[pageName].size === 0) {
         windowCount.value[pageName] = 0
       }
@@ -435,7 +454,7 @@ function goPage(pageName) {
     webview.listen('page-loaded', showWindowOnce)
 
   } catch (error) {
-    console.error('Error in goPage:', error)
+    console.error('Error in createNewWindow:', error)
   }
 }
 

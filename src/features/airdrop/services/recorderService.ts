@@ -37,6 +37,7 @@ export interface RecordingOptions {
   includeComments?: boolean;
   extensions?: string[];
   proxy?: ProxyConfig;
+  recordMouseMove?: boolean;
 }
 
 // 后端返回的会话类型
@@ -104,7 +105,9 @@ class PlaywrightRecorderBridge {
           proxy_host: proxy?.host,
           proxy_port: proxy?.port,
           proxy_username: proxy?.username,
-          proxy_password: proxy?.password
+          proxy_password: proxy?.password,
+          extensions: this.currentExtensions,
+          record_mouse_move: options.recordMouseMove
         }
       });
 

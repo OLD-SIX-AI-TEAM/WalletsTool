@@ -1326,8 +1326,8 @@ onMounted(async () => {
       windowTitle.value = (await currentWindow.title()) || '批量转账';
       currentWindowId.value = currentWindow.label;
       await initProxyStatus();
-      // 检查钱包数据库是否已初始化
-      try { walletDbReady.value = await invoke('is_wallet_db_ready'); } catch (e) { walletDbReady.value = false; }
+      // 检查钱包管理是否已初始化（只需检查是否设置过密码，不需要当前解锁）
+      try { walletDbReady.value = await invoke('is_wallet_manager_initialized'); } catch (e) { walletDbReady.value = false; }
     } catch (error) { console.error('获取窗口信息失败:', error); }
   } else { windowTitle.value = '批量转账'; currentWindowId.value = 'browser_transfer_window'; }
   document.addEventListener('click', handleClickOutside);

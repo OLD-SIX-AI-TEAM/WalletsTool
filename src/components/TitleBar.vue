@@ -43,8 +43,33 @@
           <span v-if="isCustom" class="custom-badge" title="已自定义名称">★</span>
         </div>
         
-        <!-- 生态标识 -->
-        <div v-if="ecosystem" class="ecosystem-badge" :class="ecosystem.toLowerCase()">
+        <!-- 生态标识 - 可点击切换 -->
+        <a-dropdown
+          v-if="ecosystem && canSwitchEcosystem"
+          trigger="click"
+          position="bottom"
+          @select="(val) => switchEcosystem(val)"
+        >
+          <div class="ecosystem-badge clickable" :class="ecosystem.toLowerCase()">
+            {{ ecosystem }}
+            <icon-down class="ecosystem-arrow" />
+          </div>
+          <template #content>
+            <a-doption
+              v-for="opt in ecosystemOptions"
+              :key="opt.value"
+              :value="opt.value"
+              :class="{ 'active': ecosystem.toLowerCase() === opt.value }"
+            >
+              <span class="ecosystem-option">
+                <span class="ecosystem-icon">{{ opt.icon }}</span>
+                <span class="ecosystem-label">{{ opt.label }}</span>
+                <span v-if="ecosystem.toLowerCase() === opt.value" class="check-mark">✓</span>
+              </span>
+            </a-doption>
+          </template>
+        </a-dropdown>
+        <div v-else-if="ecosystem" class="ecosystem-badge" :class="ecosystem.toLowerCase()">
           {{ ecosystem }}
         </div>
       </template>
@@ -96,8 +121,11 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, nextTick, watch } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { Notification } from '@arco-design/web-vue'
+import { Notification, Dropdown, Button, Space } from '@arco-design/web-vue'
+import { IconDown } from '@arco-design/web-vue/es/icon'
 import { useThemeStore } from '@/stores'
+import { useEcosystemStore } from '@/stores/ecosystem'
+import { useRoute, useRouter } from 'vue-router'
 import { WINDOW_CONFIG } from '@/utils/windowNames'
 
 const isMaximized = ref(false)
@@ -106,6 +134,7 @@ const isHovered = ref(false)
 const editTitle = ref('')
 const editInputRef = ref(null)
 const customTitle = ref(null)
+const showEcosystemDropdown = ref(false)
 
 const props = defineProps({
   title: {
@@ -133,6 +162,9 @@ const props = defineProps({
 const emit = defineEmits(['before-close', 'title-changed'])
 
 const themeStore = useThemeStore()
+const ecoStore = useEcosystemStore()
+const router = useRouter()
+const route = useRoute()
 const currentTheme = computed(() => themeStore.currentTheme)
 const isDarkTheme = computed({
   get: () => themeStore.getEffectiveTheme() === 'dark',
@@ -361,6 +393,66 @@ onUnmounted(() => {
     unlistenResize()
   }
 })
+
+// 生态切换相关
+const ecosystemOptions = [
+  { label: 'EVM', value: 'evm', icon: '🔷' },
+  { label: 'Solana', value: 'solana', icon: '◎' }
+]
+
+// 当前页面功能映射
+const pageMap = {
+  evm: {
+    transfer: '/eth/transfer',
+    balance: '/eth/balance',
+    monitor: '/eth/monitor'
+  },
+  solana: {
+    transfer: '/sol/transfer',
+    balance: '/sol/balance'
+  }
+}
+
+// 判断当前页面功能
+const getCurrentPageFeature = () => {
+  const path = route.path
+  if (path.includes('/transfer')) return 'transfer'
+  if (path.includes('/balance')) return 'balance'
+  if (path.includes('/monitor')) return 'monitor'
+  return null
+}
+
+// 判断是否显示生态切换（只在 transfer/balance/monitor 页面显示）
+const canSwitchEcosystem = computed(() => {
+  const path = route.path
+  return path.includes('/eth/') || path.includes('/sol/')
+})
+
+// 切换生态
+const switchEcosystem = (targetEco) => {
+  const currentEco = props.ecosystem?.toLowerCase()
+  if (targetEco === currentEco) return
+
+  const feature = getCurrentPageFeature()
+  if (!feature) return
+
+  // 检查目标生态是否支持当前功能
+  const targetPath = pageMap[targetEco]?.[feature]
+  if (!targetPath) {
+    Notification.warning({
+      title: '暂不支持',
+      content: `${targetEco === 'solana' ? 'Solana' : 'EVM'} 生态暂不支持此功能`,
+      position: 'top',
+    })
+    return
+  }
+
+  // 更新生态状态
+  ecoStore.setEco(targetEco === 'evm' ? 'eth' : 'sol')
+
+  // 跳转到对应生态的页面
+  router.replace(targetPath)
+}
 </script>
 
 <style scoped>
@@ -487,6 +579,53 @@ onUnmounted(() => {
   -webkit-app-region: no-drag;
   cursor: default;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ecosystem-badge.clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ecosystem-badge.clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.ecosystem-arrow {
+  font-size: 10px;
+  opacity: 0.8;
+  transition: transform 0.2s ease;
+}
+
+.ecosystem-badge.clickable:hover .ecosystem-arrow {
+  transform: translateY(1px);
+}
+
+.ecosystem-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 100px;
+}
+
+.ecosystem-icon {
+  font-size: 14px;
+}
+
+.ecosystem-label {
+  flex: 1;
+}
+
+.check-mark {
+  color: var(--color-primary, #3b82f6);
+  font-weight: bold;
+}
+
+:deep(.arco-dropdown-option.active) {
+  background-color: var(--color-fill-2, rgba(59, 130, 246, 0.1));
 }
 
 .ecosystem-badge.solana {

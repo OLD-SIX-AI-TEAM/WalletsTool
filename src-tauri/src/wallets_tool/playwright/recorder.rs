@@ -40,6 +40,7 @@ pub struct RecordingOptions {
     pub proxy_port: Option<i32>,
     pub proxy_username: Option<String>,
     pub proxy_password: Option<String>,
+    pub record_mouse_move: Option<bool>,
 }
 
 pub struct PlaywrightRecorder {
@@ -480,7 +481,10 @@ function generateFingerprint() {{
 const fingerprint = generateFingerprint();
 console.log('[Recorder] 生成浏览器指纹:', fingerprint.userAgent);
 
-// 生成抗检测脚本
+// 录制选项
+const recordMouseMove = {record_mouse_move};
+
+// 生成增强版抗检测脚本
 function generateStealthScript(fp) {{
   return `
     (() => {{
@@ -489,14 +493,15 @@ function generateStealthScript(fp) {{
       const DEBUG = false;
       const log = (...args) => {{ if (DEBUG) console.log('[Stealth]', ...args); }};
       
-      // 1. WebGPU 支持 - 完整实现
+      // ========== 1. WebGPU 完整支持 ==========
       try {{
         const createGPUAdapter = () => {{
           const features = new Set([
             'depth-clip-control', 'indirect-first-instance', 'shader-f16',
             'depth24unorm-stencil8', 'depth32float-stencil8', 'texture-compression-bc',
             'texture-compression-etc2', 'texture-compression-astc', 'timestamp-query',
-            'float32-filterable'
+            'float32-filterable', 'readonly_and_readwrite_storage_textures',
+            'packed_4x8_integer_dot_product', 'unrestricted_pointer_parameters'
           ]);
           
           const limits = {{
@@ -519,16 +524,67 @@ function generateStealthScript(fp) {{
             }}),
             requestDevice: async () => ({{
               features, limits,
-              queue: {{ submit: () => {{}}, copyExternalImageToTexture: () => {{}}, writeBuffer: () => {{}}, writeTexture: () => {{}} }},
-              createBuffer: () => ({{ getMappedRange: () => new ArrayBuffer(0), unmap: () => {{}}, mapAsync: async () => {{}} }}),
-              createTexture: () => ({{ createView: () => ({{}}), destroy: () => {{}} }}),
+              queue: {{ 
+                submit: () => {{}}, 
+                copyExternalImageToTexture: () => {{}}, 
+                writeBuffer: () => {{}}, 
+                writeTexture: () => {{}},
+                onsubmittedworkdone: Promise.resolve()
+              }},
+              createBuffer: (desc) => ({{ 
+                size: desc?.size || 0, usage: desc?.usage || 0,
+                getMappedRange: () => new ArrayBuffer(desc?.size || 0), 
+                unmap: () => {{}}, 
+                mapAsync: async () => {{}} 
+              }}),
+              createTexture: (desc) => ({{ 
+                width: desc?.size?.[0] || 1, height: desc?.size?.[1] || 1,
+                depthOrArrayLayers: desc?.size?.[2] || 1,
+                mipLevelCount: desc?.mipLevelCount || 1,
+                sampleCount: desc?.sampleCount || 1,
+                dimension: desc?.dimension || '2d',
+                format: desc?.format || 'rgba8unorm',
+                usage: desc?.usage || 0,
+                createView: () => ({{}}), 
+                destroy: () => {{}} 
+              }}),
               createShaderModule: () => ({{ compilationInfo: async () => ({{ messages: [] }}) }}),
+              createPipelineLayout: () => ({{}}),
               createRenderPipeline: () => ({{ getBindGroupLayout: () => ({{}}) }}),
+              createComputePipeline: () => ({{ getBindGroupLayout: () => ({{}}) }}),
               createCommandEncoder: () => ({{
-                beginRenderPass: () => ({{ setPipeline: () => {{}}, draw: () => {{}}, end: () => {{}} }}),
+                beginRenderPass: () => ({{ 
+                  setPipeline: () => {{}}, 
+                  setBindGroup: () => {{}},
+                  setVertexBuffer: () => {{}},
+                  setIndexBuffer: () => {{}},
+                  draw: () => {{}},
+                  drawIndexed: () => {{}},
+                  end: () => {{}} 
+                }}),
+                beginComputePass: () => ({{
+                  setPipeline: () => {{}},
+                  setBindGroup: () => {{}},
+                  dispatchWorkgroups: () => {{}},
+                  end: () => {{}}
+                }}),
+                copyBufferToBuffer: () => {{}},
+                copyBufferToTexture: () => {{}},
+                copyTextureToBuffer: () => {{}},
+                copyTextureToTexture: () => {{}},
+                clearBuffer: () => {{}},
+                writeTimestamp: () => {{}},
+                resolveQuerySet: () => {{}},
                 finish: () => ({{}})
               }}),
-              destroy: () => {{}}
+              createBindGroup: () => ({{}}),
+              createBindGroupLayout: () => ({{}}),
+              createSampler: () => ({{}}),
+              pushErrorScope: () => {{}},
+              popErrorScope: async () => null,
+              importExternalTexture: () => ({{}}),
+              destroy: () => {{}},
+              lost: Promise.resolve({{ reason: undefined, message: '' }})
             }})
           }};
         }};
@@ -540,7 +596,11 @@ function generateStealthScript(fp) {{
             return adapter;
           }},
           getPreferredCanvasFormat: () => 'bgra8unorm',
-          wgslLanguageFeatures: new Set(['readonly_and_readwrite_storage_textures'])
+          wgslLanguageFeatures: new Set([
+            'readonly_and_readwrite_storage_textures',
+            'packed_4x8_integer_dot_product',
+            'unrestricted_pointer_parameters'
+          ])
         }};
         
         Object.defineProperty(navigator, 'gpu', {{ get: () => fakeGPU, configurable: true, enumerable: true }});
@@ -548,100 +608,248 @@ function generateStealthScript(fp) {{
         log('WebGPU injected');
       }} catch (e) {{ log('WebGPU injection failed:', e.message); }}
       
-      // 2. 深度修复 Object.getOwnPropertyDescriptor 检测
+      // ========== 2. 深度 Object 检测绕过 ==========
       try {{
         const originalGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+        const originalGetOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
+        const originalGetOwnPropertyNames = Object.getOwnPropertyNames;
+        const originalGetOwnPropertySymbols = Object.getOwnPropertySymbols;
         const originalHasOwnProperty = Object.prototype.hasOwnProperty;
+        const originalDefineProperty = Object.defineProperty;
+        const originalKeys = Object.keys;
+        const originalValues = Object.values;
+        const originalEntries = Object.entries;
+        
         const protectedProps = ['webdriver', 'plugins', 'mimeTypes', 'languages', 
                                'hardwareConcurrency', 'deviceMemory', 'platform', 
-                               'vendor', 'maxTouchPoints', 'gpu', 'mediaDevices'];
+                               'vendor', 'maxTouchPoints', 'gpu', 'mediaDevices', 
+                               'connection', 'permissions', 'userAgentData'];
         const protectedObjects = [navigator, window.navigator, window.screen, window];
         
+        // 重写 getOwnPropertyDescriptor
         Object.getOwnPropertyDescriptor = function(obj, prop) {{
           try {{
             const result = originalGetOwnPropertyDescriptor.call(Object, obj, prop);
             if (protectedObjects.includes(obj) && protectedProps.includes(prop) && result) {{
-              return {{ get: result.get || (() => obj[prop]), set: result.set || undefined, enumerable: true, configurable: true }};
+              return {{ 
+                get: result.get || (() => obj[prop]), 
+                set: result.set || undefined, 
+                enumerable: true, 
+                configurable: true 
+              }};
             }}
             return result;
-          }} catch (e) {{ return originalGetOwnPropertyDescriptor.call(Object, obj, prop); }}
+          }} catch (e) {{ 
+            return originalGetOwnPropertyDescriptor.call(Object, obj, prop); 
+          }}
         }};
         
+        // 重写 getOwnPropertyDescriptors
+        Object.getOwnPropertyDescriptors = function(obj) {{
+          try {{
+            const descriptors = originalGetOwnPropertyDescriptors.call(Object, obj);
+            if (protectedObjects.includes(obj)) {{
+              Object.keys(descriptors).forEach(key => {{
+                if (protectedProps.includes(key)) {{
+                  descriptors[key] = {{ 
+                    get: descriptors[key].get || (() => obj[key]), 
+                    set: descriptors[key].set || undefined, 
+                    enumerable: true, 
+                    configurable: true 
+                  }};
+                }}
+              }});
+            }}
+            return descriptors;
+          }} catch (e) {{ 
+            return originalGetOwnPropertyDescriptors.call(Object, obj); 
+          }}
+        }};
+        
+        // 重写 hasOwnProperty
         Object.prototype.hasOwnProperty = function(v) {{
           try {{
             if (protectedObjects.includes(this) && protectedProps.includes(v)) return false;
             return originalHasOwnProperty.call(this, v);
           }} catch (e) {{ return false; }}
         }};
-        log('Object descriptor protection enabled');
-      }} catch (e) {{ }}
-      
-      // 3. 多层 webdriver 移除
-      try {{
-        delete navigator.webdriver;
-        Object.defineProperty(navigator, 'webdriver', {{ get: () => false, configurable: true, enumerable: true }});
-        Object.defineProperty(Navigator.prototype, 'webdriver', {{ get: () => false, configurable: true, enumerable: true }});
         
-        const originalKeys = Object.keys;
+        // 重写 Object.keys
         Object.keys = function(obj) {{
           try {{
-            if (obj === navigator) return originalKeys(obj).filter(k => k !== 'webdriver');
+            if (protectedObjects.includes(obj)) {{
+              return originalKeys(obj).filter(k => !protectedProps.includes(k));
+            }}
             return originalKeys(obj);
           }} catch (e) {{ return []; }}
         }};
-        log('webdriver removed');
+        
+        // 重写 Object.getOwnPropertyNames
+        Object.getOwnPropertyNames = function(obj) {{
+          try {{
+            if (protectedObjects.includes(obj)) {{
+              return originalGetOwnPropertyNames.call(Object, obj).filter(k => !protectedProps.includes(k));
+            }}
+            return originalGetOwnPropertyNames.call(Object, obj);
+          }} catch (e) {{ return []; }}
+        }};
+        
+        // 保护 JSON.stringify
+        const originalStringify = JSON.stringify;
+        JSON.stringify = function(value, replacer, space) {{
+          if (value === navigator) {{
+            const navigatorCopy = {{}};
+            Object.keys(value).forEach(key => {{
+              if (!protectedProps.includes(key)) {{
+                navigatorCopy[key] = value[key];
+              }}
+            }});
+            return originalStringify.call(JSON, navigatorCopy, replacer, space);
+          }}
+          return originalStringify.call(JSON, value, replacer, space);
+        }};
+        
+        log('Object descriptor protection enabled');
       }} catch (e) {{ }}
       
-      // 4. Canvas 指纹混淆
+      // ========== 3. 多层 webdriver 移除（终极版） ==========
+      try {{
+        // 方法1: 直接删除
+        delete navigator.webdriver;
+        
+        // 方法2: 定义在 navigator 上
+        Object.defineProperty(navigator, 'webdriver', {{ 
+          get: () => false, 
+          configurable: true, 
+          enumerable: true 
+        }});
+        
+        // 方法3: 定义在 Navigator.prototype 上
+        Object.defineProperty(Navigator.prototype, 'webdriver', {{ 
+          get: () => false, 
+          configurable: true, 
+          enumerable: true 
+        }});
+        
+        // 方法4: 定义在原型链上
+        const navigatorProto = Object.getPrototypeOf(navigator);
+        if (navigatorProto) {{
+          Object.defineProperty(navigatorProto, 'webdriver', {{ 
+            get: () => false, 
+            configurable: true, 
+            enumerable: true 
+          }});
+        }}
+        
+        // 方法5: 覆盖 Object.getPrototypeOf
+        const originalGetPrototypeOf = Object.getPrototypeOf;
+        Object.getPrototypeOf = function(obj) {{
+          const proto = originalGetPrototypeOf.call(Object, obj);
+          if (obj === navigator && proto) {{
+            delete proto.webdriver;
+            Object.defineProperty(proto, 'webdriver', {{ 
+              get: () => false, 
+              configurable: true, 
+              enumerable: true 
+            }});
+          }}
+          return proto;
+        }};
+        
+        log('webdriver removed (ultimate)');
+      }} catch (e) {{ }}
+      
+      // ========== 4. Canvas 指纹混淆（增强版） ==========
       try {{
         const originalGetContext = HTMLCanvasElement.prototype.getContext;
+        const canvasNoise = Math.random();
+        
+        // 生成稳定的噪声
+        const generateStableNoise = (width, height) => {{
+          const seed = width * 31 + height * 17;
+          return (Math.sin(seed) + 1) / 2;
+        }};
+        
         HTMLCanvasElement.prototype.getContext = function(type, ...args) {{
           const context = originalGetContext.apply(this, [type, ...args]);
-          if (!context || type !== '2d') return context;
+          if (!context) return context;
           
-          const randomOffset = () => (Math.random() - 0.5) * 0.0001;
+          const canvas = this;
+          const width = canvas.width || 300;
+          const height = canvas.height || 150;
+          const stableNoise = generateStableNoise(width, height);
           
-          ['fillText', 'strokeText', 'measureText'].forEach(method => {{
-            const original = context[method];
-            context[method] = function(...textArgs) {{
-              if (method !== 'measureText') {{
-                textArgs[1] = (textArgs[1] || 0) + randomOffset();
-                textArgs[2] = (textArgs[2] || 0) + randomOffset();
+          if (type === '2d') {{
+            const randomOffset = () => (Math.random() - 0.5) * 0.0001;
+            
+            // 文本渲染方法
+            ['fillText', 'strokeText', 'measureText'].forEach(method => {{
+              const original = context[method];
+              context[method] = function(...textArgs) {{
+                if (method !== 'measureText' && Math.random() > 0.2) {{
+                  textArgs[1] = (textArgs[1] || 0) + randomOffset();
+                  textArgs[2] = (textArgs[2] || 0) + randomOffset();
+                }}
+                return original.apply(this, textArgs);
+              }};
+            }});
+            
+            // 路径方法
+            ['moveTo', 'lineTo', 'bezierCurveTo', 'quadraticCurveTo', 'arc', 'arcTo'].forEach(method => {{
+              const original = context[method];
+              context[method] = function(...pathArgs) {{
+                for (let i = 0; i < pathArgs.length; i++) {{
+                  if (typeof pathArgs[i] === 'number' && Math.random() > 0.7) {{
+                    pathArgs[i] += randomOffset() * 0.1;
+                  }}
+                }}
+                return original.apply(this, pathArgs);
+              }};
+            }});
+            
+            // 图像数据获取
+            const originalGetImageData = context.getImageData;
+            context.getImageData = function(sx, sy, sw, sh) {{
+              const imageData = originalGetImageData.apply(this, [sx, sy, sw, sh]);
+              const noise = Math.floor(stableNoise * 3) - 1;
+              for (let i = 0; i < imageData.data.length; i += 4) {{
+                imageData.data[i] = Math.max(0, Math.min(255, imageData.data[i] + noise));
+                imageData.data[i + 1] = Math.max(0, Math.min(255, imageData.data[i + 1] + noise));
+                imageData.data[i + 2] = Math.max(0, Math.min(255, imageData.data[i + 2] + noise));
               }}
-              return original.apply(this, textArgs);
+              return imageData;
             }};
-          }});
-          
-          const originalGetImageData = context.getImageData;
-          context.getImageData = function(sx, sy, sw, sh) {{
-            const imageData = originalGetImageData.apply(this, [sx, sy, sw, sh]);
-            const noise = Math.floor(Math.random() * 3) - 1;
-            for (let i = 0; i < imageData.data.length; i += 4) {{
-              imageData.data[i] = Math.max(0, Math.min(255, imageData.data[i] + noise));
-              imageData.data[i + 1] = Math.max(0, Math.min(255, imageData.data[i + 1] + noise));
-              imageData.data[i + 2] = Math.max(0, Math.min(255, imageData.data[i + 2] + noise));
-            }}
-            return imageData;
-          }};
-          
+            
+            // toDataURL 防护
+            const originalToDataURL = canvas.toDataURL;
+            canvas.toDataURL = function(...args) {{
+              const originalFillStyle = context.fillStyle;
+              context.fillStyle = 'rgba(0,0,0,0.001)';
+              context.fillRect(0, 0, 1, 1);
+              context.fillStyle = originalFillStyle;
+              return originalToDataURL.apply(this, args);
+            }};
+          }}
           return context;
         }};
-        log('Canvas protection enabled');
+        log('Canvas protection enabled (enhanced)');
       }} catch (e) {{ }}
       
-      // 5. WebGL 指纹伪装
+      // ========== 5. WebGL/WebGL2 指纹伪装（增强版） ==========
       try {{
         const gpuVendor = fp.vendor;
         const gpuRenderer = 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti Direct3D11 vs_5_0 ps_5_0, D3D11)';
         
         const overrideWebGL = (WebGLClass) => {{
           if (!WebGLClass) return;
+          
           const originalGetParameter = WebGLClass.prototype.getParameter;
           WebGLClass.prototype.getParameter = function(parameter) {{
             if (parameter === 37445) return gpuVendor;
             if (parameter === 37446) return gpuRenderer;
             return originalGetParameter.apply(this, arguments);
           }};
+          
           const originalGetExtension = WebGLClass.prototype.getExtension;
           WebGLClass.prototype.getExtension = function(name) {{
             if (name === 'WEBGL_debug_renderer_info') return null;
@@ -651,49 +859,83 @@ function generateStealthScript(fp) {{
         
         overrideWebGL(WebGLRenderingContext);
         overrideWebGL(WebGL2RenderingContext);
-        log('WebGL protection enabled');
+        log('WebGL protection enabled (enhanced)');
       }} catch (e) {{ }}
       
-      // 6. AudioContext 伪装
+      // ========== 6. AudioContext 完整伪装 ==========
       try {{
+        const createFakeAudioBuffer = () => ({{
+          sampleRate: 48000 + Math.floor(Math.random() * 100),
+          length: 1024,
+          duration: 0.021333333333333333,
+          numberOfChannels: 2,
+          getChannelData: () => new Float32Array(1024).map(() => (Math.random() - 0.5) * 0.001),
+          copyFromChannel: () => {{}},
+          copyToChannel: () => {{}}
+        }});
+
         const FakeAudioContext = class {{
           constructor() {{
             this.state = 'running';
             this.sampleRate = 48000;
             this.baseLatency = 0.01;
             this.outputLatency = 0.01;
+            this.destination = {{
+              maxChannelCount: 2, numberOfInputs: 1, numberOfOutputs: 0,
+              channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers'
+            }};
           }}
           createAnalyser() {{
             return {{
               fftSize: 2048, frequencyBinCount: 1024,
               getFloatFrequencyData: (arr) => {{ for (let i = 0; i < arr.length; i++) arr[i] = -100 + Math.random() * 70; }},
               getFloatTimeDomainData: (arr) => {{ for (let i = 0; i < arr.length; i++) arr[i] = (Math.random() - 0.5) * 0.01; }},
-              connect: () => {{}}
+              connect: () => {{}}, disconnect: () => {{}}
             }};
           }}
           createOscillator() {{ return {{ type: 'sine', frequency: {{ value: 440 }}, connect: () => {{}}, start: () => {{}}, stop: () => {{}} }}; }}
           createBufferSource() {{ return {{ buffer: null, playbackRate: {{ value: 1 }}, connect: () => {{}}, start: () => {{}}, stop: () => {{}} }}; }}
+          createBuffer() {{ return createFakeAudioBuffer(); }}
+          decodeAudioData() {{ return Promise.resolve(createFakeAudioBuffer()); }}
           createGain() {{ return {{ gain: {{ value: 1 }}, connect: () => {{}} }}; }}
           close() {{ this.state = 'closed'; return Promise.resolve(); }}
+          suspend() {{ this.state = 'suspended'; return Promise.resolve(); }}
           resume() {{ this.state = 'running'; return Promise.resolve(); }}
         }};
-        
+
         window.AudioContext = FakeAudioContext;
         window.webkitAudioContext = FakeAudioContext;
-        log('AudioContext faked');
+        log('AudioContext faked (complete)');
       }} catch (e) {{ }}
       
-      // 7. Chrome 对象伪装
+      // ========== 7. Chrome 对象完整伪装 ==========
       try {{
         window.chrome = {{
-          app: {{ isInstalled: false, getDetails: () => null, getIsInstalled: () => false }},
+          app: {{
+            isInstalled: false,
+            InstallState: {{ DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }},
+            RunningState: {{ CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }},
+            getDetails: () => null, 
+            getIsInstalled: () => false
+          }},
           runtime: {{
             OnInstalledReason: {{ CHROME_UPDATE: 'chrome_update', INSTALL: 'install' }},
             OnRestartRequiredReason: {{ APP_UPDATE: 'app_update', OS_UPDATE: 'os_update' }},
             PlatformArch: {{ ARM: 'arm', X86_64: 'x86-64' }},
-            PlatformOs: {{ WIN: 'win', MAC: 'mac', LINUX: 'linux' }},
-            connect: () => ({{ onDisconnect: {{ addListener: () => {{}} }}, onMessage: {{ addListener: () => {{}} }}, postMessage: () => {{}} }}),
-            sendMessage: () => {{}}
+            PlatformOs: {{ WIN: 'win', MAC: 'mac', LINUX: 'linux', ANDROID: 'android', OPENBSD: 'openbsd' }},
+            connect: () => ({{ 
+              onDisconnect: {{ addListener: () => {{}} }}, 
+              onMessage: {{ addListener: () => {{}} }}, 
+              postMessage: () => {{}},
+              disconnect: () => {{}}
+            }}),
+            sendMessage: () => {{}},
+            getManifest: () => ({{}}),
+            getURL: (path) => 'chrome-extension://' + path,
+            reload: () => {{}},
+            requestUpdateCheck: () => {{}},
+            restart: () => {{}},
+            restartAfterDelay: () => {{}}
           }},
           csi: () => ({{}}),
           loadTimes: () => ({{
@@ -707,16 +949,22 @@ function generateStealthScript(fp) {{
             startLoadTime: Date.now() / 1000 - Math.random() * 2.5,
           }})
         }};
-        log('Chrome object faked');
+        
+        // 确保 window.chrome 也存在
+        if (!window.navigator.chrome) {{
+          window.navigator.chrome = window.chrome;
+        }}
+        
+        log('Chrome object faked (complete)');
       }} catch (e) {{ }}
       
-      // 8. Plugins 伪装
+      // ========== 8. Plugins 伪装（增强版） ==========
       try {{
-        const createFakePlugin = (name, filename, description) => {{
+        const createFakePlugin = (name, filename, description, version) => {{
           const plugin = Object.create(Plugin.prototype);
           ['name', 'filename', 'description', 'version', 'length'].forEach(prop => {{
             Object.defineProperty(plugin, prop, {{ 
-              get: () => ({{ name, filename, description, version: '1.0.0.0', length: 0 }}[prop]),
+              get: () => ({{ name, filename, description, version: version || 'undefined', length: 0 }}[prop]),
               enumerable: true 
             }});
           }});
@@ -725,11 +973,14 @@ function generateStealthScript(fp) {{
           return plugin;
         }};
         
+        // 随机版本号
+        const randomVersion = () => '1.0.' + Math.floor(Math.random() * 10) + '.' + Math.floor(Math.random() * 100);
+        
         const pluginsData = [
-          createFakePlugin('Chrome PDF Plugin', 'internal-pdf-viewer', 'Portable Document Format'),
-          createFakePlugin('Chrome PDF Viewer', 'mhjfbmdgcfjbbpaeojofohoefgiehjai', 'Portable Document Format'),
-          createFakePlugin('Native Client', 'internal-nacl-plugin', ''),
-          createFakePlugin('Widevine Content Decryption Module', 'widevinecdmadapter.dll', 'Widevine Content Decryption Module')
+          createFakePlugin('Chrome PDF Plugin', 'internal-pdf-viewer', 'Portable Document Format', randomVersion()),
+          createFakePlugin('Chrome PDF Viewer', 'mhjfbmdgcfjbbpaeojofohoefgiehjai', 'Portable Document Format', randomVersion()),
+          createFakePlugin('Native Client', 'internal-nacl-plugin', '', randomVersion()),
+          createFakePlugin('Widevine Content Decryption Module', 'widevinecdmadapter.dll', 'Widevine Content Decryption Module', randomVersion())
         ];
         
         const plugins = Object.create(PluginArray.prototype);
@@ -743,25 +994,26 @@ function generateStealthScript(fp) {{
         plugins.refresh = () => {{}};
         
         Object.defineProperty(navigator, 'plugins', {{ get: () => plugins, configurable: true, enumerable: true }});
-        log('Plugins faked');
+        log('Plugins faked (enhanced)');
       }} catch (e) {{ }}
       
-      // 9. MimeTypes 伪装
+      // ========== 9. MimeTypes 伪装（增强版） ==========
       try {{
-        const createFakeMimeType = (type, suffixes, description) => {{
+        const createFakeMimeType = (type, suffixes, description, plugin) => {{
           const mimeType = Object.create(MimeType.prototype);
           Object.defineProperty(mimeType, 'type', {{ get: () => type, enumerable: true }});
           Object.defineProperty(mimeType, 'suffixes', {{ get: () => suffixes, enumerable: true }});
           Object.defineProperty(mimeType, 'description', {{ get: () => description, enumerable: true }});
-          Object.defineProperty(mimeType, 'enabledPlugin', {{ get: () => navigator.plugins[1], enumerable: true }});
+          Object.defineProperty(mimeType, 'enabledPlugin', {{ get: () => plugin, enumerable: true }});
           return mimeType;
         }};
         
         const mimeTypesData = [
-          createFakeMimeType('application/pdf', 'pdf', 'Portable Document Format'),
-          createFakeMimeType('application/x-google-chrome-pdf', 'pdf', 'Portable Document Format'),
-          createFakeMimeType('application/x-nacl', '', 'Native Client module'),
-          createFakeMimeType('application/x-pnacl', '', 'Portable Native Client module')
+          createFakeMimeType('application/pdf', 'pdf', 'Portable Document Format', navigator.plugins[1]),
+          createFakeMimeType('application/x-google-chrome-pdf', 'pdf', 'Portable Document Format', navigator.plugins[1]),
+          createFakeMimeType('application/x-nacl', '', 'Native Client module', navigator.plugins[2]),
+          createFakeMimeType('application/x-pnacl', '', 'Portable Native Client module', navigator.plugins[2]),
+          createFakeMimeType('application/octet-stream', '', '', null)
         ];
         
         const mimeTypes = Object.create(MimeTypeArray.prototype);
@@ -774,10 +1026,10 @@ function generateStealthScript(fp) {{
         }};
         
         Object.defineProperty(navigator, 'mimeTypes', {{ get: () => mimeTypes, configurable: true, enumerable: true }});
-        log('MimeTypes faked');
+        log('MimeTypes faked (enhanced)');
       }} catch (e) {{ }}
       
-      // 10. Navigator 属性伪装
+      // ========== 10. Navigator 属性伪装（增强版） ==========
       try {{
         const props = {{
           languages: fp.languages,
@@ -942,10 +1194,129 @@ function generateStealthScript(fp) {{
         }});
       }} catch (e) {{ }}
       
-      // 20. Document 属性
+      // ========== 20. Document 属性 ==========
       try {{
         Object.defineProperty(document, 'hidden', {{ get: () => false, configurable: true }});
         Object.defineProperty(document, 'visibilityState', {{ get: () => 'visible', configurable: true }});
+        Object.defineProperty(document, 'webkitHidden', {{ get: () => false, configurable: true }});
+        Object.defineProperty(document, 'webkitVisibilityState', {{ get: () => 'visible', configurable: true }});
+      }} catch (e) {{ }}
+      
+      // ========== 21. Function.prototype.toString 保护 ==========
+      try {{
+        const nativeToStringFunction = Function.prototype.toString;
+        Function.prototype.toString = function() {{
+          if (this === navigator.webdriver) return 'function webdriver() {{ [native code] }}';
+          if (this === Function.prototype.toString) return 'function toString() {{ [native code] }}';
+          const funcStr = nativeToStringFunction.call(this);
+          if (funcStr.includes('[native code]')) return funcStr;
+          return funcStr;
+        }};
+        log('Function.toString protected');
+      }} catch (e) {{ }}
+      
+      // ========== 22. 时序噪声（防止通过性能检测发现自动化） ==========
+      try {{
+        const originalNow = performance.now;
+        const noise = Math.random() * 10;
+        performance.now = function() {{ return originalNow.call(performance) + noise; }};
+        
+        const originalDateNow = Date.now;
+        Date.now = function() {{ return originalDateNow.call(Date) + Math.floor(Math.random() * 50); }};
+        
+        // 覆盖 console.time 和 console.timeEnd
+        const originalTime = console.time;
+        const originalTimeEnd = console.timeEnd;
+        console.time = function(label) {{ return originalTime.call(console, label); }};
+        console.timeEnd = function(label) {{ return originalTimeEnd.call(console, label); }};
+        
+        log('Timing noise added');
+      }} catch (e) {{ }}
+      
+      // ========== 23. Alert 反检测（模拟人类反应时间） ==========
+      try {{
+        const originalAlert = window.alert;
+        window.alert = function(message) {{
+          const alertStartTime = Date.now();
+          const result = originalAlert.call(this, message);
+          const actualElapsed = Date.now() - alertStartTime;
+          
+          // 如果实际时间小于 50ms（说明是自动关闭的），模拟人类反应时间
+          if (actualElapsed < 50) {{
+            const humanDelay = 100 + Math.floor(Math.random() * 400);
+            const targetTime = alertStartTime + humanDelay;
+            while (Date.now() < targetTime) {{
+              // 忙等待模拟人类反应
+            }}
+          }}
+          return result;
+        }};
+        log('Alert anti-detection enabled');
+      }} catch (e) {{ }}
+      
+      // ========== 24. MediaDevices 伪装 ==========
+      try {{
+        const fakeMediaDevices = {{
+          enumerateDevices: async () => [
+            {{ kind: 'audioinput', deviceId: 'default', label: 'Default', groupId: 'default' }},
+            {{ kind: 'audiooutput', deviceId: 'default', label: 'Default', groupId: 'default' }},
+            {{ kind: 'videoinput', deviceId: 'default', label: 'Default', groupId: 'default' }}
+          ],
+          getUserMedia: async () => ({{
+            getTracks: () => [],
+            addEventListener: () => {{}},
+            removeEventListener: () => {{}}
+          }}),
+          getDisplayMedia: async () => ({{
+            getTracks: () => [],
+            addEventListener: () => {{}},
+            removeEventListener: () => {{}}
+          }}),
+          addEventListener: () => {{}},
+          removeEventListener: () => {{}}
+        }};
+        
+        Object.defineProperty(navigator, 'mediaDevices', {{
+          get: () => fakeMediaDevices,
+          configurable: true,
+          enumerable: true
+        }});
+        log('MediaDevices faked');
+      }} catch (e) {{ }}
+      
+      // ========== 25. 删除可能暴露自动化的属性 ==========
+      try {{
+        const propsToDelete = ['bluetooth', 'clipboard', 'credentials', 'keyboard', 
+                              'mediaCapabilities', 'presentation', 'scheduling', 
+                              'storage', 'wakeLock', 'globalPrivacyControl'];
+        propsToDelete.forEach(prop => {{
+          try {{ 
+            if (prop in navigator && navigator[prop] === undefined) {{
+              delete navigator[prop]; 
+            }}
+          }} catch (e) {{}}
+        }});
+        log('Undefined properties cleaned');
+      }} catch (e) {{ }}
+      
+      // ========== 26. Screen Orientation 伪装 ==========
+      try {{
+        Object.defineProperty(window.screen, 'orientation', {{
+          get: () => ({{
+            angle: 0,
+            type: 'landscape-primary',
+            addEventListener: () => {{}},
+            removeEventListener: () => {{}},
+            lock: async () => {{}},
+            unlock: async () => {{}}
+          }}),
+          configurable: true
+        }});
+      }} catch (e) {{ }}
+      
+      // ========== 27. 覆盖 self 属性 ==========
+      try {{
+        Object.defineProperty(window, 'self', {{ get: () => window, configurable: false }});
       }} catch (e) {{ }}
       
       log('All stealth scripts injected successfully');
@@ -961,18 +1332,41 @@ const stealthScript = generateStealthScript(fingerprint);
     browser = await {browser_type}.launch({{
       headless: {headless},
       args: [
+        // ========== 核心反检测参数 ==========
         '--disable-blink-features=AutomationControlled',
         '--disable-dev-shm-usage',
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-web-security',
         '--disable-features=IsolateOrigins,site-per-process,SitePerProcess',
+        
+        // ========== Cloudflare 绕过关键参数 ==========
+        '--disable-background-networking',
+        '--disable-sync',
+        '--safebrowsing-disable-auto-update',
+        '--disable-component-update',
+        '--disable-features=InterestFeedContentSuggestions',
+        '--disable-features=TranslateUI',
+        '--disable-features=PasswordManager',
+        '--disable-features=AutofillServerCommunication',
+        '--disable-features=AutofillAddressSavePrompt',
+        '--disable-features=AutofillCreditCardSavePrompt',
+        '--disable-features=SecurePaymentConfirmation',
+        '--disable-features=PrivacySandboxSettings4',
+        '--disable-features=LazyFrameLoading',
+        '--disable-features=LazyImageLoading',
+        
+        // ========== 禁用自动化特征 ==========
         '--disable-gpu',
         '--disable-extensions',
         '--disable-plugins',
         '--disable-default-apps',
         '--no-first-run',
         '--ignore-certificate-errors',
+        '--ignore-ssl-errors',
+        '--ignore-certificate-errors-spki-list',
+        
+        // ========== 后台行为优化 ==========
         '--disable-background-timer-throttling',
         '--disable-backgrounding-occluded-windows',
         '--disable-renderer-backgrounding',
@@ -980,15 +1374,47 @@ const stealthScript = generateStealthScript(fingerprint);
         '--disable-hang-monitor',
         '--disable-prompt-on-repost',
         '--disable-popup-blocking',
+        
+        // ========== 性能和稳定性 ==========
         '--enable-features=NetworkService,NetworkServiceInProcess',
         '--disable-breakpad',
+        '--no-crash-upload',
         '--log-level=3',
         '--disable-component-extensions-with-background-pages',
-        '--disable-component-update',
         '--disable-translate',
-        '--window-size=' + fp.screenSize.width + ',' + fp.screenSize.height
+        '--disable-back-forward-cache',
+        '--disable-prerender-back-forward-cache',
+        '--disable-client-side-phishing-detection',
+        '--disable-password-manager',
+        '--enable-zero-copy',
+        '--enable-gpu-rasterization',
+        '--use-gl=swiftshader',
+        
+        // ========== 禁用可能暴露自动化的功能 ==========
+        '--disable-bundled-ppapi-flash',
+        '--disable-plugins-discovery',
+        '--disable-flash-3d',
+        '--disable-flash-stage3d',
+        '--disable-speech-api',
+        '--disable-voice-input',
+        '--disable-file-system',
+        
+        // ========== 窗口和显示 ==========
+        '--window-size=' + fp.screenSize.width + ',' + fp.screenSize.height,
+        '--window-position=' + Math.floor(Math.random() * 100) + ',' + Math.floor(Math.random() * 100),
+        '--force-device-scale-factor=' + fp.devicePixelRatio,
+        
+        // ========== 用户数据隔离 ==========
+        '--disable-session-crashed-bubble',
+        '--disable-infobars',
+        '--disable-features=OptimizationHints,OptimizationHintsFetching,OptimizationTargetPrediction,OptimizationGuideModelDownloading',
       ],
-      ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
+      ignoreDefaultArgs: [
+        '--enable-automation', 
+        '--enable-blink-features=IdleDetection',
+        '--enable-logging',
+        '--log-level'
+      ],
       {proxy_config}
     }});
   }} catch (launchError) {{
@@ -1013,6 +1439,24 @@ const stealthScript = generateStealthScript(fingerprint);
     permissions: ['geolocation'],
     hasTouch: fingerprint.maxTouchPoints > 0,
     deviceScaleFactor: fingerprint.devicePixelRatio,
+    colorScheme: 'light',
+  }});
+  
+  // 设置额外的 HTTP 头（模拟真实浏览器）
+  await context.setExtraHTTPHeaders({{
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Language': fingerprint.locale + ',en-US;q=0.9,en;q=0.8',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Cache-Control': 'max-age=0',
+    'Sec-Ch-Ua': '"Not.A;Brand";v="8", "Chromium";v="' + (fingerprint.userAgent.match(/Chrome\/(\d+)/)?.[1] || '133') + '", "Google Chrome";v="' + (fingerprint.userAgent.match(/Chrome\/(\d+)/)?.[1] || '133') + '"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"' + (fingerprint.platform === 'MacIntel' ? 'macOS' : 'Windows') + '"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'DNT': '1'
   }});
   
   // 在所有页面加载前注入抗检测脚本
@@ -1092,18 +1536,7 @@ const stealthScript = generateStealthScript(fingerprint);
         logAction('click', selector, null, '点击 ' + selector);
       }}, false);
       
-      // 鼠标移动事件监听 (节流，每500ms记录一次)
-      let lastMouseMove = 0;
-      document.addEventListener('mousemove', function(e) {{
-        const now = Date.now();
-        if (now - lastMouseMove > 500) {{  // 500ms 节流
-          lastMouseMove = now;
-          const selector = getSelector(e.target);
-          const value = JSON.stringify({{ x: e.clientX, y: e.clientY }});
-          console.log('[Recorder Debug] 鼠标移动:', selector, value);
-          logAction('mousemove', selector, value, '鼠标移动到 ' + selector);
-        }}
-      }}, false);
+      {mouse_move_listener}
       
       // 页面滚动事件监听 (节流，每500ms记录一次)
       let lastScroll = 0;
@@ -1272,6 +1705,146 @@ const stealthScript = generateStealthScript(fingerprint);
     }}
   }});
   
+  // ========== 人类行为模拟函数 ==========
+  async function humanLikeMouseMove(targetX, targetY) {{
+    const currentPos = await page.evaluate(() => ({{
+      x: window.lastMouseX || Math.random() * window.innerWidth,
+      y: window.lastMouseY || Math.random() * window.innerHeight
+    }}));
+    
+    let startX = currentPos.x;
+    let startY = currentPos.y;
+    
+    // 添加过冲效果
+    let overshootRatio = 0.05 + Math.random() * 0.1;
+    let targetXWithOvershoot = targetX + (targetX - startX) * overshootRatio;
+    let targetYWithOvershoot = targetY + (targetY - startY) * overshootRatio;
+    
+    // 贝塞尔曲线控制点
+    const distance = Math.sqrt((targetXWithOvershoot - startX) ** 2 + (targetYWithOvershoot - startY) ** 2);
+    const cpDistance = distance * 0.3;
+    const angle1 = Math.atan2(targetYWithOvershoot - startY, targetXWithOvershoot - startX) + Math.PI / 4;
+    const angle2 = Math.atan2(targetYWithOvershoot - startY, targetXWithOvershoot - startX) - Math.PI / 4;
+    
+    const cp1x = startX + Math.cos(angle1) * cpDistance;
+    const cp1y = startY + Math.sin(angle1) * cpDistance;
+    const cp2x = targetXWithOvershoot - Math.cos(angle2) * cpDistance;
+    const cp2y = targetYWithOvershoot - Math.sin(angle2) * cpDistance;
+    
+    const steps = Math.floor(Math.random() * 25) + 15; // 15-40步
+    
+    // 速度曲线
+    for (let i = 0; i <= steps; i++) {{
+      const t = i / steps;
+      const easeOut = 1 - Math.pow(1 - t, 3);
+      
+      // 贝塞尔曲线计算
+      const x = startX * Math.pow(1 - t, 3) + 
+                cp1x * 3 * Math.pow(1 - t, 2) * t + 
+                cp2x * 3 * (1 - t) * Math.pow(t, 2) + 
+                targetXWithOvershoot * Math.pow(t, 3);
+      const y = startY * Math.pow(1 - t, 3) + 
+                cp1y * 3 * Math.pow(1 - t, 2) * t + 
+                cp2y * 3 * (1 - t) * Math.pow(t, 2) + 
+                targetYWithOvershoot * Math.pow(t, 3);
+      
+      await page.mouse.move(x, y);
+      
+      // 根据速度调整延迟
+      const delay = Math.floor((Math.random() * 17) + 8) * (1 + Math.sin(t * Math.PI));
+      await page.waitForTimeout(delay);
+    }}
+    
+    // 修正过冲
+    const correctionSteps = Math.floor(Math.random() * 5) + 3;
+    for (let i = 1; i <= correctionSteps; i++) {{
+      const t = i / correctionSteps;
+      const x = targetXWithOvershoot + (targetX - targetXWithOvershoot) * t;
+      const y = targetYWithOvershoot + (targetY - targetYWithOvershoot) * t;
+      await page.mouse.move(x, y);
+      await page.waitForTimeout(Math.floor(Math.random() * 10) + 10);
+    }}
+    
+    // 保存最后位置
+    await page.evaluate((x, y) => {{
+      window.lastMouseX = x;
+      window.lastMouseY = y;
+    }}, targetX, targetY);
+    
+    // 随机停顿
+    if (Math.random() > 0.6) {{
+      await page.waitForTimeout(Math.floor(Math.random() * 150) + 50);
+    }}
+  }}
+  
+  async function humanLikeClick(selector) {{
+    try {{
+      const element = await page.$(selector);
+      if (!element) return false;
+      
+      const box = await element.boundingBox();
+      if (!box) return false;
+      
+      // 随机选择点击位置（偏向中心）
+      const bias = 0.6;
+      const targetX = box.x + box.width * (0.5 + (Math.random() - 0.5) * bias);
+      const targetY = box.y + box.height * (0.5 + (Math.random() - 0.5) * bias);
+      
+      // 先移动到附近
+      if (Math.random() > 0.3) {{
+        const nearbyX = targetX + (Math.random() - 0.5) * 50;
+        const nearbyY = targetY + (Math.random() - 0.5) * 50;
+        await humanLikeMouseMove(nearbyX, nearbyY);
+        await page.waitForTimeout(Math.floor(Math.random() * 200) + 100);
+      }}
+      
+      // 精确移动到目标
+      await humanLikeMouseMove(targetX, targetY);
+      
+      // 随机停顿后点击
+      await page.waitForTimeout(Math.floor(Math.random() * 100) + 50);
+      
+      // 点击前微小抖动
+      if (Math.random() > 0.8) {{
+        await page.mouse.move(targetX + (Math.random() - 0.5) * 3, targetY + (Math.random() - 0.5) * 3);
+        await page.waitForTimeout(20);
+      }}
+      
+      // 执行点击
+      await page.mouse.down();
+      await page.waitForTimeout(Math.floor(Math.random() * 70) + 80); // 按下持续时间
+      await page.mouse.up();
+      
+      // 点击后随机停顿
+      await page.waitForTimeout(Math.floor(Math.random() * 300) + 200);
+      
+      return true;
+    }} catch (e) {{
+      return false;
+    }}
+  }}
+  
+  async function humanLikeScroll(direction = 'down', minDistance = 300, maxDistance = 800) {{
+    const distance = Math.floor(Math.random() * (maxDistance - minDistance + 1)) + minDistance;
+    const actualDistance = direction === 'up' ? -distance : distance;
+    const steps = Math.floor(Math.random() * 10) + 5; // 5-15步
+    const stepDistance = actualDistance / steps;
+    
+    for (let i = 0; i < steps; i++) {{
+      const progress = i / steps;
+      const currentStep = stepDistance * (1 + Math.sin(progress * Math.PI) * 0.3);
+      
+      await page.evaluate((d) => window.scrollBy({{ top: d, behavior: 'auto' }}), currentStep);
+      
+      // 滚动间随机停顿（模拟阅读）
+      const delay = Math.floor(Math.random() * 100) + 50 + (Math.random() > 0.7 ? Math.floor(Math.random() * 400) + 200 : 0);
+      await page.waitForTimeout(delay);
+    }}
+    
+    // 滚动后随机停顿
+    await page.waitForTimeout(Math.floor(Math.random() * 700) + 300);
+  }}
+  
   // 在页面加载后执行录制脚本
   page.on('console', msg => {{
     const text = msg.text();
@@ -1331,7 +1904,24 @@ const stealthScript = generateStealthScript(fingerprint);
             headless = headless,
             proxy_config = proxy_config,
             url = url,
-            timeout = DEFAULT_TIMEOUT_SECS * 1000
+            timeout = DEFAULT_TIMEOUT_SECS * 1000,
+            record_mouse_move = options.record_mouse_move.unwrap_or(false),
+            mouse_move_listener = if options.record_mouse_move.unwrap_or(false) {
+                r#"// 鼠标移动事件监听 (节流，每500ms记录一次)
+      let lastMouseMove = 0;
+      document.addEventListener('mousemove', function(e) {{
+        const now = Date.now();
+        if (now - lastMouseMove > 500) {{  // 500ms 节流
+          lastMouseMove = now;
+          const selector = getSelector(e.target);
+          const value = JSON.stringify({{ x: e.clientX, y: e.clientY }});
+          console.log('[Recorder Debug] 鼠标移动:', selector, value);
+          logAction('mousemove', selector, value, '鼠标移动到 ' + selector);
+        }}
+      }}, false);"#
+            } else {
+                "// 鼠标移动录制已禁用"
+            }
         );
         
         js_code

@@ -47,6 +47,9 @@ const proxyPort = ref('8595');
 const proxyUsername = ref('');
 const proxyPassword = ref('');
 
+// 录制选项
+const recordMouseMove = ref(false);
+
 // 保存脚本对话框
 const showSaveDialog = ref(false);
 const scriptName = ref('');
@@ -204,7 +207,8 @@ const startRecording = async () => {
       viewportHeight: 720,
       includeComments: true,
       extensions: extensionPaths,
-      proxy: proxyConfig
+      proxy: proxyConfig,
+      recordMouseMove: recordMouseMove.value
     });
     
     isBrowserOpen.value = true;
@@ -456,6 +460,12 @@ onUnmounted(() => {
           <a-option value="firefox">Firefox</a-option>
           <a-option value="webkit">WebKit</a-option>
         </a-select>
+        
+        <span class="switch-label" style="margin-left: 16px; color: var(--color-text-3); font-size: 12px;">录制鼠标:</span>
+        <a-switch v-model="recordMouseMove" :disabled="isRecording" size="small" style="margin-left: 4px;">
+          <template #checked>开</template>
+          <template #unchecked>关</template>
+        </a-switch>
       </div>
       
       <div class="config-row" v-if="availableExtensions.length > 0">

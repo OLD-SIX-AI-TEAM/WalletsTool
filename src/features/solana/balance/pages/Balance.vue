@@ -447,8 +447,8 @@ onMounted(async () => {
       // 获取当前窗口ID
       currentWindowId.value = currentWindow.label;
       
-      // 检查钱包数据库是否已初始化
-      try { walletDbReady.value = await invoke('is_wallet_db_ready'); } catch (e) { walletDbReady.value = false; }
+      // 检查钱包管理是否已初始化（只需检查是否设置过密码，不需要当前解锁）
+      try { walletDbReady.value = await invoke('is_wallet_manager_initialized'); } catch (e) { walletDbReady.value = false; }
 
       // 添加Tauri窗口关闭事件监听器
       await currentWindow.onCloseRequested(async (event) => {
