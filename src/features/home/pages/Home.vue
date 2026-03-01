@@ -41,7 +41,8 @@ const dockBackgroundStyle = computed(() => {
   const isDark = themeStore.getEffectiveTheme() === 'dark'
   if (isDark) {
     return {
-      background: `rgba(60, 55, 50, ${adjustedOpacity})`
+      background: `rgba(22, 27, 34, ${adjustedOpacity})`,
+      border: `1px solid rgba(88, 108, 199, ${adjustedOpacity * 0.3})`
     }
   } else {
     return {
@@ -56,7 +57,8 @@ const confirmModalStyle = computed(() => {
   const isDark = themeStore.getEffectiveTheme() === 'dark'
   if (isDark) {
     return {
-      background: `rgba(60, 55, 50, 0.95)`,
+      background: `rgba(22, 27, 34, 0.95)`,
+      border: `1px solid rgba(88, 108, 199, 0.3)`,
       borderRadius: '16px'
     }
   } else {

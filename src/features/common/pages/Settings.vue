@@ -349,13 +349,55 @@ async function checkForUpdate() {
     updateChecking.value = true
     console.log('[checkForUpdate] 调用 invoke check_update...')
 
-    const result = await invoke('check_update', {
-      currentVersion: appVersion.value
-    })
+    let result = null
+    let usedFallback = false
 
-    console.log('[checkForUpdate] 检查结果:', result)
+    try {
+      // 首先尝试 Tauri Updater
+      result = await invoke('check_update', {
+        currentVersion: appVersion.value
+      })
+      console.log('[checkForUpdate] Tauri Updater 检查结果:', result)
+    } catch (updaterError) {
+      // Tauri Updater 失败，尝试 GitHub Release API（带代理回退）
+      console.log('[checkForUpdate] Tauri Updater 失败，尝试 GitHub Release API:', updaterError)
+      usedFallback = true
+
+      try {
+        const githubResult = await invoke('check_github_release_update', {
+          owner: 'WalletsTool',
+          repo: 'WalletsTool',
+          currentVersion: appVersion.value
+        })
+
+        if (githubResult) {
+          result = {
+            has_update: true,
+            current_version: githubResult.current_version,
+            latest_version: githubResult.latest_version,
+            release_notes: githubResult.body,
+            download_url: githubResult.html_url,
+            published_at: githubResult.published_at
+          }
+        } else {
+          result = {
+            has_update: false,
+            current_version: appVersion.value,
+            latest_version: appVersion.value,
+            release_notes: null,
+            download_url: null,
+            published_at: null
+          }
+        }
+        console.log('[checkForUpdate] GitHub Release API 检查结果:', result)
+      } catch (githubError) {
+        console.error('[checkForUpdate] GitHub Release API 也失败:', githubError)
+        throw new Error('所有更新检查方式均失败，请检查网络连接')
+      }
+    }
+
     console.log('[checkForUpdate] has_update:', result.has_update, 'current_version:', result.current_version)
-    
+
     updateInfo.value = result
 
     if (result.has_update) {
@@ -363,10 +405,10 @@ async function checkForUpdate() {
       if (ignored && ignored === result.latest_version) {
         // 版本已被忽略，显示提示
         hasUpdate.value = false
-        Notification.info({ 
-          title: '检查更新', 
-          content: `v${result.latest_version} 已是最新版本（已忽略）`, 
-          position: 'top' 
+        Notification.info({
+          title: '检查更新',
+          content: `v${result.latest_version} 已是最新版本（已忽略）`,
+          position: 'top'
         })
       } else {
         hasUpdate.value = true
@@ -374,6 +416,9 @@ async function checkForUpdate() {
         Modal.confirm({
           title: '发现新版本',
           content: () => h('div', { style: 'max-height: 300px; overflow-y: auto;' }, [
+            usedFallback ? h('div', {
+              style: 'margin-bottom: 12px; padding: 8px 12px; background: rgba(255, 165, 0, 0.1); border-radius: 4px; font-size: 12px; color: #ff8c00;'
+            }, '⚠️ 通过备用通道检测到更新，建议前往 GitHub 下载最新版本') : null,
             h('div', { style: 'margin-bottom: 12px;' }, [
               h('span', { style: 'color: #666;' }, '当前版本: '),
               h('span', { style: 'font-weight: 600; color: #586cc7;' }, result.current_version)
@@ -391,11 +436,18 @@ async function checkForUpdate() {
               }, result.release_notes || '暂无更新说明')
             ])
           ]),
-          okText: '下载并安装',
+          okText: usedFallback ? '前往下载' : '下载并安装',
           cancelText: '稍后提醒',
           width: 380,
           onOk: async () => {
-            await downloadAndInstallUpdate()
+            if (usedFallback) {
+              // 备用通道检测到更新，打开浏览器下载页面
+              const { open } = await import('@tauri-apps/plugin-shell')
+              await open(result.download_url)
+            } else {
+              // 正常使用 Tauri Updater 下载安装
+              await downloadAndInstallUpdate()
+            }
           },
           onCancel: () => {
             // 用户选择稍后提醒，不忽略版本，保持hasUpdate为true
@@ -641,24 +693,27 @@ async function downloadAndInstallUpdate() {
         <div class="section-title">更新</div>
         <div class="setting-item" @click="checkForUpdate" :class="{ disabled: updateChecking }">
           <div class="item-left">
-            <div class="item-icon update-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <div class="item-icon update-icon" :class="{ 'loading-spin': updateChecking }">
+              <svg v-if="!updateChecking" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+              </svg>
+              <svg v-else class="loading-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
               </svg>
             </div>
             <div class="item-info">
               <div class="item-title">
-                检查更新
-                <span v-if="hasUpdate" class="update-badge">NEW</span>
+                {{ updateChecking ? '正在检查更新...' : '检查更新' }}
+                <span v-if="hasUpdate && !updateChecking" class="update-badge">NEW</span>
               </div>
               <div class="item-desc">
-                {{ hasUpdate ? `发现新版本 v${updateInfo?.latest_version}` : '检查是否有新版本可用' }}
+                {{ updateChecking ? '正在从多个镜像源查询最新版本' : (hasUpdate ? `发现新版本 v${updateInfo?.latest_version}` : '检查是否有新版本可用') }}
               </div>
             </div>
           </div>
           <div class="item-right">
-            <span v-if="hasUpdate" class="update-dot"></span>
-            <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <span v-if="hasUpdate && !updateChecking" class="update-dot"></span>
+            <svg v-if="!updateChecking" class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M9 18l6-6-6-6"/>
             </svg>
           </div>
@@ -841,6 +896,23 @@ async function downloadAndInstallUpdate() {
 .update-icon {
   background: linear-gradient(135deg, #722ed1, #531dab);
   color: #fff;
+}
+
+.update-icon.loading-spin {
+  background: linear-gradient(135deg, #586cc7, #722ed1);
+}
+
+.loading-spinner {
+  animation: spinner-rotate 1s linear infinite;
+}
+
+@keyframes spinner-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .update-badge {

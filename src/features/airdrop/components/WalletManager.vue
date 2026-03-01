@@ -642,4 +642,28 @@ onMounted(async () => {
 :deep(.arco-table-cell) {
   background: transparent !important;
 }
+
+/* 暗黑主题样式覆盖 */
+:root[data-theme="dark"] .wallet-manager {
+  background: transparent;
+}
+
+:root[data-theme="dark"] .toolbar {
+  background: linear-gradient(135deg, #1c2128 0%, #161b22 100%) !important;
+  border-color: rgba(88, 108, 199, 0.2) !important;
+}
+
+:root[data-theme="dark"] .stats-bar {
+  background: rgba(88, 108, 199, 0.15) !important;
+  color: var(--color-text-2, #c9d1d9);
+}
+
+:root[data-theme="dark"] .table-wrapper {
+  background: linear-gradient(135deg, #161b22 0%, #0d1117 100%) !important;
+  border-color: rgba(88, 108, 199, 0.2) !important;
+}
+
+:root[data-theme="dark"] .stats-bar strong {
+  color: #5b8aff !important;
+}
 </style>

@@ -461,13 +461,13 @@ const switchEcosystem = (targetEco) => {
   justify-content: space-between;
   align-items: center;
   height: 40px;
-  background: linear-gradient(to bottom, var(--color-bg-2, #ffffff), var(--color-bg-1, #f7f8fa));
-  color: white;
+  background: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
+  color: var(--color-text-1, #e8eaf6);
   font-size: 14px;
   -webkit-app-region: drag;
   user-select: none;
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(30, 58, 138, 0.3);
+  border-bottom: 1px solid rgba(88, 108, 199, 0.2);
   padding: 0 10px;
   font-weight: 500;
   position: fixed;
@@ -504,8 +504,8 @@ const switchEcosystem = (targetEco) => {
 
 .title-bar-input {
   display: inline-block;
-  background: var(--color-bg-1, #1a1a1a);
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(13, 17, 23, 0.8);
+  border: 1px solid rgba(88, 108, 199, 0.3);
   border-radius: 4px;
   padding: 4px 8px;
   font-size: 14px;
@@ -527,13 +527,13 @@ const switchEcosystem = (targetEco) => {
 }
 
 .title-bar-input:focus {
-  border-color: rgba(66, 153, 225, 0.8);
-  background: var(--color-bg-1, #1a1a1a);
-  box-shadow: 0 0 0 2px rgba(66, 153, 225, 0.2);
+  border-color: rgba(91, 138, 255, 0.8);
+  background: rgba(13, 17, 23, 1);
+  box-shadow: 0 0 0 2px rgba(91, 138, 255, 0.2);
 }
 
 .title-bar-input::placeholder {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--color-text-3, #9aa3c2);
 }
 
 .custom-badge {
@@ -649,13 +649,13 @@ const switchEcosystem = (targetEco) => {
 }
 
 .title-editable.title-hovered {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(88, 108, 199, 0.15);
+  border-color: rgba(88, 108, 199, 0.25);
 }
 
 .title-editable.title-hovered:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(88, 108, 199, 0.25);
+  border-color: rgba(91, 138, 255, 0.4);
 }
 
 .title-bar-controls {
@@ -672,10 +672,10 @@ const switchEcosystem = (targetEco) => {
   justify-content: center;
   width: 32px;
   height: 32px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(88, 108, 199, 0.15);
   border: none;
   border-radius: 6px;
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--color-text-2, #c9d1d9);
   cursor: pointer;
   font-size: 16px;
   transition: all 0.2s ease;
@@ -683,12 +683,12 @@ const switchEcosystem = (targetEco) => {
 }
 
 .title-bar-control:hover {
-  background: rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.9);
+  background: rgba(88, 108, 199, 0.3);
+  color: var(--color-text-1, #e8eaf6);
 }
 
 .title-bar-control.close:hover {
-  background-color: rgba(96, 96, 96, 0.9) !important;
+  background-color: rgba(220, 38, 38, 0.8) !important;
   color: white !important;
 }
 
@@ -741,21 +741,21 @@ const switchEcosystem = (targetEco) => {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(88, 108, 199, 0.15);
   border-radius: 20px;
   padding: 6px 12px;
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(88, 108, 199, 0.2);
   -webkit-app-region: no-drag;
 }
 
 .theme-icon {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--color-text-3, #9aa3c2);
   transition: color 0.2s ease;
 }
 
 .theme-toggle-container:hover .theme-icon {
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--color-text-1, #e8eaf6);
 }
 
 .theme-switch {

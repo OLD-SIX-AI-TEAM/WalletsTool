@@ -68,26 +68,68 @@
     --overlay-bg: rgba(0, 0, 0, 0.5);
 }
 
-/* 暗黑主题变量 */
+/* 暗黑主题变量 - 深蓝黑渐变风格 */
 :root[data-theme="dark"] {
-    --primary-color: #3370ff;
-    --text-color: #ffffff;
-    --text-color-secondary: #86909c;
-    --bg-color: rgb(42, 42, 43);
-    --bg-gradient: rgb(42, 42, 43);
-    --card-bg: rgb(35 35 36);
-    --border-color: #3a3a4e;
-    --shadow-color: rgba(0, 0, 0, 0.3);
-    --table-bg: rgb(35, 35, 36);
-    --table-header-bg: rgb(45, 45, 46);
-    --table-header-text-color: #ffffff;
-    --table-text-color: #ffffff;
-    --table-border-color: #3a3a4e;
-    --table-hover-bg: #4a4520;
-    --table-zebra-bg: #4b4b4b;
-    --table-selected-bg: rgba(51, 112, 255, 0.2);
-    --loading-bg: rgba(42, 42, 43, 0.8);
-    --overlay-bg: rgba(0, 0, 0, 0.7);
+    --primary-color: #5b8aff;
+    --text-color: #e8eaf6;
+    --text-color-secondary: #9aa3c2;
+    --bg-color: #0d1117;
+    --bg-gradient: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0f172a 100%);
+    --card-bg: rgba(22, 27, 34, 0.8);
+    --border-color: rgba(88, 108, 199, 0.2);
+    --shadow-color: rgba(0, 0, 0, 0.5);
+    --table-bg: rgba(13, 17, 23, 0.6);
+    --table-header-bg: rgba(22, 27, 34, 0.9);
+    --table-header-text-color: #e8eaf6;
+    --table-text-color: #e8eaf6;
+    --table-border-color: rgba(88, 108, 199, 0.15);
+    --table-hover-bg: rgba(88, 108, 199, 0.15);
+    --table-zebra-bg: rgba(22, 27, 34, 0.4);
+    --table-selected-bg: rgba(91, 138, 255, 0.2);
+    --loading-bg: rgba(13, 17, 23, 0.9);
+    --overlay-bg: rgba(0, 0, 0, 0.8);
+
+    /* Arco Design 变量覆盖 - 深蓝黑主题 */
+    --color-bg-1: #0d1117;
+    --color-bg-2: #161b22;
+    --color-bg-3: #1c2128;
+    --color-bg-4: #21262d;
+    --color-bg-5: #161b22;
+    --color-bg-white: #0d1117;
+
+    --color-text-1: #e8eaf6;
+    --color-text-2: #c9d1d9;
+    --color-text-3: #9aa3c2;
+    --color-text-4: #6e7681;
+
+    --color-fill-1: rgba(88, 108, 199, 0.1);
+    --color-fill-2: rgba(88, 108, 199, 0.15);
+    --color-fill-3: rgba(88, 108, 199, 0.2);
+    --color-fill-4: rgba(88, 108, 199, 0.25);
+
+    --color-border-1: rgba(88, 108, 199, 0.15);
+    --color-border-2: rgba(88, 108, 199, 0.2);
+    --color-border-3: rgba(88, 108, 199, 0.3);
+    --color-border-4: rgba(88, 108, 199, 0.4);
+
+    --color-primary-light-1: rgba(91, 138, 255, 0.2);
+    --color-primary-light-2: rgba(91, 138, 255, 0.3);
+    --color-primary-light-3: rgba(91, 138, 255, 0.4);
+    --color-primary-light-4: rgba(91, 138, 255, 0.5);
+
+    --color-secondary: #9aa3c2;
+    --color-secondary-hover: #b4bcd0;
+    --color-secondary-active: #7d8597;
+    --color-secondary-disabled: #484f58;
+
+    --color-menu-dark-bg: #0d1117;
+    --color-menu-light-bg: #161b22;
+    --color-menu-dark-hover: rgba(88, 108, 199, 0.15);
+    --color-menu-light-hover: rgba(88, 108, 199, 0.1);
+
+    --color-header-bg: #161b22;
+    --color-footer-bg: #0d1117;
+    --color-sider-bg: #161b22;
 }
 
 /* 应用主题变量 */
@@ -267,20 +309,20 @@ body > div[class*="notification"] {
 
 /* 暗黑主题下的虚拟滚动容器滚动条样式 */
 :root[data-theme="dark"] .p-virtualscroller {
-  scrollbar-color: #4a4a4a #2a2a2a !important;
+  scrollbar-color: rgba(88, 108, 199, 0.4) rgba(13, 17, 23, 0.8) !important;
 }
 
 :root[data-theme="dark"] .p-virtualscroller::-webkit-scrollbar-track {
-  background: #2a2a2a !important;
+  background: rgba(13, 17, 23, 0.8) !important;
 }
 
 :root[data-theme="dark"] .p-virtualscroller::-webkit-scrollbar-thumb {
-  background: #4a4a4a !important;
+  background: rgba(88, 108, 199, 0.4) !important;
   border-radius: 4px !important;
 }
 
 :root[data-theme="dark"] .p-virtualscroller::-webkit-scrollbar-thumb:hover {
-  background: #5a5a5a !important;
+  background: rgba(91, 138, 255, 0.6) !important;
 }
 
 /* ============================================
@@ -313,15 +355,15 @@ body > div[class*="notification"] {
 
 /* 暗黑主题 */
 :root[data-theme="dark"] .selector-list {
-  scrollbar-color: #4a4a4a transparent;
+  scrollbar-color: rgba(88, 108, 199, 0.4) transparent;
 }
 
 :root[data-theme="dark"] .selector-list::-webkit-scrollbar-thumb {
-  background: #4a4a4a;
+  background: rgba(88, 108, 199, 0.4);
 }
 
 :root[data-theme="dark"] .selector-list::-webkit-scrollbar-thumb:hover {
-  background: #5a5a5a;
+  background: rgba(91, 138, 255, 0.6);
 }
 
 /* ============================================

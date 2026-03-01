@@ -608,4 +608,144 @@ const toggleMaximize = async () => {
 .light-theme .content-header h2 {
   color: #2c3e50;
 }
+
+/* 暗黑主题样式覆盖 */
+.browser-automation-layout[data-theme="dark"] .sidebar-collapsed,
+.browser-automation-layout[data-theme="dark"] .sidebar-expanded,
+:root[data-theme="dark"] .browser-automation-layout .sidebar-collapsed,
+:root[data-theme="dark"] .browser-automation-layout .sidebar-expanded {
+  background: linear-gradient(180deg, #161b22 0%, #0d1117 100%) !important;
+  border-right: 1px solid rgba(88, 108, 199, 0.2) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .sidebar-header,
+:root[data-theme="dark"] .browser-automation-layout .sidebar-header {
+  border-bottom: 1px solid rgba(88, 108, 199, 0.2) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .nav-item-collapsed,
+.browser-automation-layout[data-theme="dark"] .nav-item-expanded,
+:root[data-theme="dark"] .browser-automation-layout .nav-item-collapsed,
+:root[data-theme="dark"] .browser-automation-layout .nav-item-expanded {
+  color: var(--color-text-2, #c9d1d9);
+}
+
+.browser-automation-layout[data-theme="dark"] .nav-item-collapsed:hover,
+.browser-automation-layout[data-theme="dark"] .nav-item-expanded:hover,
+:root[data-theme="dark"] .browser-automation-layout .nav-item-collapsed:hover,
+:root[data-theme="dark"] .browser-automation-layout .nav-item-expanded:hover {
+  background: rgba(88, 108, 199, 0.15) !important;
+  color: var(--color-text-1, #e8eaf6) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .nav-item-collapsed.active,
+.browser-automation-layout[data-theme="dark"] .nav-item-expanded.active,
+:root[data-theme="dark"] .browser-automation-layout .nav-item-collapsed.active,
+:root[data-theme="dark"] .browser-automation-layout .nav-item-expanded.active {
+  background: rgba(91, 138, 255, 0.2) !important;
+  color: #5b8aff !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .pin-btn,
+:root[data-theme="dark"] .browser-automation-layout .pin-btn {
+  color: var(--color-text-3, #9aa3c2);
+}
+
+.browser-automation-layout[data-theme="dark"] .pin-btn:hover,
+:root[data-theme="dark"] .browser-automation-layout .pin-btn:hover {
+  background: rgba(88, 108, 199, 0.15) !important;
+  color: var(--color-text-1, #e8eaf6) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .pin-btn.pinned,
+:root[data-theme="dark"] .browser-automation-layout .pin-btn.pinned {
+  color: #5b8aff !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .pin-btn.pinned:hover,
+:root[data-theme="dark"] .browser-automation-layout .pin-btn.pinned:hover {
+  background: rgba(91, 138, 255, 0.2) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .content-header,
+:root[data-theme="dark"] .browser-automation-layout .content-header {
+  background: linear-gradient(135deg, #161b22 0%, #0d1117 100%) !important;
+  border-bottom: 1px solid rgba(88, 108, 199, 0.2) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .content-header h2,
+:root[data-theme="dark"] .browser-automation-layout .content-header h2 {
+  color: var(--color-text-1, #e8eaf6) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .close-btn:hover,
+:root[data-theme="dark"] .browser-automation-layout .close-btn:hover {
+  color: #ef4444 !important;
+  background: rgba(239, 68, 68, 0.15) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .minimize-btn:hover,
+:root[data-theme="dark"] .browser-automation-layout .minimize-btn:hover {
+  color: #5b8aff !important;
+  background: rgba(91, 138, 255, 0.15) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .maximize-btn:hover,
+:root[data-theme="dark"] .browser-automation-layout .maximize-btn:hover {
+  color: #14b866 !important;
+  background: rgba(20, 184, 102, 0.15) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .main-content,
+:root[data-theme="dark"] .browser-automation-layout .main-content {
+  background: linear-gradient(135deg, #0d1117 0%, #111827 50%, #0f172a 100%) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] .content-body,
+:root[data-theme="dark"] .browser-automation-layout .content-body {
+  background: transparent !important;
+}
+
+/* 覆盖子组件的背景色 - 使用 :deep() 穿透 scoped */
+.browser-automation-layout[data-theme="dark"] :deep(.toolbar),
+:root[data-theme="dark"] .browser-automation-layout :deep(.toolbar) {
+  background: linear-gradient(135deg, #1c2128 0%, #161b22 100%) !important;
+  border-color: rgba(88, 108, 199, 0.2) !important;
+}
+
+.browser-automation-layout[data-theme="dark"] :deep(.table-wrapper),
+.browser-automation-layout[data-theme="dark"] :deep(.browser-farm),
+.browser-automation-layout[data-theme="dark"] :deep(.script-editor),
+.browser-automation-layout[data-theme="dark"] :deep(.extension-manager),
+.browser-automation-layout[data-theme="dark"] :deep(.task-manager),
+.browser-automation-layout[data-theme="dark"] :deep(.task-monitor),
+.browser-automation-layout[data-theme="dark"] :deep(.execution-panel),
+:root[data-theme="dark"] .browser-automation-layout :deep(.table-wrapper),
+:root[data-theme="dark"] .browser-automation-layout :deep(.browser-farm),
+:root[data-theme="dark"] .browser-automation-layout :deep(.script-editor),
+:root[data-theme="dark"] .browser-automation-layout :deep(.extension-manager),
+:root[data-theme="dark"] .browser-automation-layout :deep(.task-manager),
+:root[data-theme="dark"] .browser-automation-layout :deep(.task-monitor),
+:root[data-theme="dark"] .browser-automation-layout :deep(.execution-panel) {
+  background: linear-gradient(135deg, #161b22 0%, #0d1117 100%) !important;
+  border-color: rgba(88, 108, 199, 0.2) !important;
+}
+
+/* 覆盖所有使用 var(--color-bg-2) 的元素 */
+.browser-automation-layout[data-theme="dark"] :deep([class*="wrapper"]),
+.browser-automation-layout[data-theme="dark"] :deep([class*="container"]),
+.browser-automation-layout[data-theme="dark"] :deep([class*="panel"]),
+:root[data-theme="dark"] .browser-automation-layout :deep([class*="wrapper"]),
+:root[data-theme="dark"] .browser-automation-layout :deep([class*="container"]),
+:root[data-theme="dark"] .browser-automation-layout :deep([class*="panel"]) {
+  background-color: #161b22 !important;
+}
+
+/* 强制覆盖所有子组件的背景色 */
+.browser-automation-layout[data-theme="dark"] :deep(*),
+:root[data-theme="dark"] .browser-automation-layout :deep(*) {
+  --color-bg-1: #0d1117 !important;
+  --color-bg-2: #161b22 !important;
+  --color-bg-3: #1c2128 !important;
+}
 </style>

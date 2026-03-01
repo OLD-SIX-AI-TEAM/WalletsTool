@@ -3,7 +3,7 @@ import { ref, onMounted, reactive, watch, nextTick, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Message, Notification, Modal } from '@arco-design/web-vue';
-import { IconPlus, IconDelete, IconEdit, IconDownload, IconLock, IconFolder, IconFile, IconInfoCircle } from '@arco-design/web-vue/es/icon';
+import { IconPlus, IconDelete, IconEdit, IconDownload, IconToBottom, IconToTop, IconLock, IconFolder, IconFile, IconInfoCircle } from '@arco-design/web-vue/es/icon';
 import { useRouter } from 'vue-router';
 import * as XLSX from 'xlsx';
 import TitleBar from '@/components/TitleBar.vue';
@@ -2054,7 +2054,7 @@ const confirmExport = async () => {
                         添加钱包
                     </a-button>
                     <a-button style="margin-left: 10px;" type="primary" status="success" @click="showBatchImportModal = true">
-                        <template #icon><icon-download /></template>
+                        <template #icon><icon-to-bottom /></template>
                         批量导入
                     </a-button>
                     <a-button style="margin-left: 10px;" type="outline" @click="downloadTemplate">
@@ -2094,7 +2094,7 @@ const confirmExport = async () => {
                       :disabled="selectedWatchAddressIds.length === 0"
                       @click="handleExportWatchAddresses"
                     >
-                        <template #icon><icon-export /></template>
+                        <template #icon><icon-to-top /></template>
                         导出 ({{ selectedWatchAddressIds.length }})
                     </a-button>
                     <a-button
@@ -3628,6 +3628,40 @@ const confirmExport = async () => {
     .init-unlock-btn-primary:hover {
         box-shadow: 0 4px 12px rgba(51, 112, 255, 0.4);
     }
+}
+
+/* 暗黑主题下的 Tree 组件样式覆盖 */
+:root[data-theme="dark"] .sidebar {
+    background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
+    border-right: 1px solid rgba(88, 108, 199, 0.2);
+}
+
+:root[data-theme="dark"] :deep(.arco-tree-node) {
+    color: var(--color-text-2, #c9d1d9);
+}
+
+:root[data-theme="dark"] :deep(.arco-tree-node:hover) {
+    background-color: rgba(88, 108, 199, 0.15);
+}
+
+:root[data-theme="dark"] :deep(.arco-tree-node-selected) {
+    background-color: rgba(91, 138, 255, 0.2);
+    color: var(--color-text-1, #e8eaf6);
+}
+
+:root[data-theme="dark"] .tree-node-content.is-selected {
+    background-color: rgba(91, 138, 255, 0.2);
+    color: #5b8aff;
+}
+
+:root[data-theme="dark"] .tree-folder-icon {
+    color: rgba(91, 138, 255, 0.8);
+}
+
+:root[data-theme="dark"] .sidebar-header {
+    color: var(--color-text-1, #e8eaf6);
+    border-bottom: 1px solid rgba(88, 108, 199, 0.15);
+    padding-bottom: 10px;
 }
 
 </style>
