@@ -140,15 +140,27 @@ jobs:
           tagName: ${{ github.ref_name || github.event.inputs.version }}
           releaseName: 'Wallets Tool ${{ github.ref_name || github.event.inputs.version }}'
           releaseBody: |
-            ## 🎉 新版本发布 v0.4.24
+            ## 🎉 新版本发布 v0.4.25
             
             ### 📦 安装包下载
             - **Windows**: 下载 `.exe` 文件
             
             ### 🔄 更新说明
-            ### 📝 Documentation | 文档
+            ### ✨ New Features | 新功能
             
-            - **database:** 添加初始化与恢复出厂设置文档
+            - **更新检查:** 实现静默检查更新功能并添加视觉提示
+            - **钱包管理:** 统一使用 is_wallet_manager_initialized 检查钱包初始化状态
+            - 添加浏览器插件图标支持及增强指纹功能
+            - 添加主题变量支持并优化窗口管理
+            - **窗口:** 调整主窗口大小和位置计算逻辑
+            - 新增浏览器插件管理功能并优化自动化任务执行
+            
+            ### ♻️ Refactoring | 重构
+            
+            - **airdrop:** 优化浏览器自动化功能并移除party-js依赖
+            - 清理未使用的参数和代码
+            
+
             
 
             
