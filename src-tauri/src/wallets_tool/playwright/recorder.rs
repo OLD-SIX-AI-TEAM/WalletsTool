@@ -1400,9 +1400,9 @@ const stealthScript = generateStealthScript(fingerprint);
         '--disable-file-system',
         
         // ========== 窗口和显示 ==========
-        '--window-size=' + fp.screenSize.width + ',' + fp.screenSize.height,
+        '--window-size=' + fingerprint.screenSize.width + ',' + fingerprint.screenSize.height,
         '--window-position=' + Math.floor(Math.random() * 100) + ',' + Math.floor(Math.random() * 100),
-        '--force-device-scale-factor=' + fp.devicePixelRatio,
+        '--force-device-scale-factor=' + fingerprint.devicePixelRatio,
         
         // ========== 用户数据隔离 ==========
         '--disable-session-crashed-bubble',

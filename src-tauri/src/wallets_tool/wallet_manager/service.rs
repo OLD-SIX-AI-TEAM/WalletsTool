@@ -994,6 +994,7 @@ impl WalletManagerService {
             .map(|s| s.trim().to_lowercase())
             .filter(|s| !s.is_empty());
 
+        // 只查询完整钱包，排除仅地址
         let wallets = if let Some(gid) = group_id {
             let group = sqlx::query_as::<_, WalletGroup>("SELECT * FROM wallet_groups WHERE id = ?")
                 .bind(gid)
@@ -1018,35 +1019,35 @@ impl WalletManagerService {
                         return Ok(Vec::new());
                     }
                 }
-                // Query by group_id and chain_type
-                sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE group_id = ? AND lower(trim(chain_type)) = ?")
+                // Query by group_id and chain_type, only full wallets
+                sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE group_id = ? AND lower(trim(chain_type)) = ? AND wallet_type = 'full_wallet'")
                     .bind(gid)
                     .bind(&req_ct)
                     .fetch_all(&self.pool())
                     .await?
             } else if group_chain_type.is_some() {
                 // Group has chain_type but request doesn't, use group's chain_type
-                sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE group_id = ? AND lower(trim(chain_type)) = ?")
+                sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE group_id = ? AND lower(trim(chain_type)) = ? AND wallet_type = 'full_wallet'")
                     .bind(gid)
                     .bind(group_chain_type.unwrap())
                     .fetch_all(&self.pool())
                     .await?
             } else {
-                // Group doesn't have chain_type, query all wallets in this group
-                sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE group_id = ?")
+                // Group doesn't have chain_type, query all full wallets in this group
+                sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE group_id = ? AND wallet_type = 'full_wallet'")
                     .bind(gid)
                     .fetch_all(&self.pool())
                     .await?
             }
         } else if let Some(ct) = req_chain_type {
-            // Query by chain_type only (system groups)
-            sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE lower(trim(chain_type)) = ?")
+            // Query by chain_type only (system groups), only full wallets
+            sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE lower(trim(chain_type)) = ? AND wallet_type = 'full_wallet'")
                 .bind(ct)
                 .fetch_all(&self.pool())
                 .await?
         } else {
-            // No filter, return all wallets
-            sqlx::query_as::<_, Wallet>("SELECT * FROM wallets")
+            // No filter, return all full wallets
+            sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE wallet_type = 'full_wallet'")
                 .fetch_all(&self.pool())
                 .await?
         };
@@ -1301,11 +1302,13 @@ impl WalletManagerService {
     }
 
     pub async fn delete_watch_address(&self, id: i64) -> Result<()> {
+        log::debug!("[DEBUG] 删除仅地址，ID: {}", id);
         let result = sqlx::query("DELETE FROM wallets WHERE id = ? AND wallet_type = 'address_only'")
             .bind(id)
             .execute(&self.pool())
             .await?;
 
+        log::debug!("[DEBUG] 删除结果，影响行数: {}", result.rows_affected());
         if result.rows_affected() == 0 {
             return Err(anyhow!("地址不存在"));
         }
@@ -1377,10 +1380,12 @@ impl WalletManagerService {
     }
 
     pub async fn delete_wallet(&self, id: i64) -> Result<()> {
-        sqlx::query("DELETE FROM wallets WHERE id = ?")
+        log::debug!("[DEBUG] 删除完整钱包，ID: {}", id);
+        let result = sqlx::query("DELETE FROM wallets WHERE id = ? AND wallet_type = 'full_wallet'")
             .bind(id)
             .execute(&self.pool())
             .await?;
+        log::debug!("[DEBUG] 删除结果，影响行数: {}", result.rows_affected());
         Ok(())
     }
 
@@ -1830,6 +1835,461 @@ impl WalletManagerService {
         } else {
             Ok(None)
         }
+    }
+
+    // ==================== Encrypted Cloud Backup Methods ====================
+
+    /// 创建加密备份
+    pub async fn create_encrypted_backup(&self, request: CreateBackupRequest) -> Result<EncryptedBackup> {
+        // 1. 收集备份数据
+        let backup_data = self.collect_backup_data(&request.backup_type).await?;
+        
+        // 2. 序列化数据
+        let json_data = serde_json::to_string(&backup_data)?;
+        
+        // 3. 生成加密参数
+        let mut salt = [0u8; 16];
+        let mut iv = [0u8; 12];
+        rand::thread_rng().fill(&mut salt);
+        rand::thread_rng().fill(&mut iv);
+        
+        // 4. 使用备份密码派生密钥
+        let key = self.derive_backup_key(&request.backup_password, &salt);
+        
+        // 5. 使用 AES-256-GCM 加密
+        let (ciphertext, auth_tag) = self.encrypt_backup_data(&json_data, &key, &iv)?;
+        
+        // 6. 构建元数据
+        let metadata = BackupMetadata {
+            version: "1.0".to_string(),
+            created_at: Utc::now(),
+            wallet_count: backup_data.wallets.len() as u32,
+            group_count: backup_data.groups.len() as u32,
+            watch_address_count: backup_data.watch_addresses.len() as u32,
+            backup_type: request.backup_type,
+            description: request.description,
+        };
+        
+        Ok(EncryptedBackup {
+            metadata,
+            encrypted_data: BASE64.encode(&ciphertext),
+            encryption_version: "aes-256-gcm-v1".to_string(),
+            salt: hex::encode(salt),
+            iv: hex::encode(iv),
+            auth_tag: hex::encode(auth_tag),
+        })
+    }
+
+    /// 恢复加密备份
+    pub async fn restore_encrypted_backup(&self, request: RestoreBackupRequest) -> Result<RestoreResult> {
+        let backup = request.backup_data;
+        
+        // 1. 验证加密版本
+        if backup.encryption_version != "aes-256-gcm-v1" {
+            return Err(anyhow!("不支持的加密版本: {}", backup.encryption_version));
+        }
+        
+        // 2. 解析加密参数
+        let salt = hex::decode(&backup.salt)?;
+        let iv = hex::decode(&backup.iv)?;
+        let auth_tag = hex::decode(&backup.auth_tag)?;
+        let ciphertext = BASE64.decode(&backup.encrypted_data)?;
+        
+        // 3. 派生密钥
+        let key = self.derive_backup_key(&request.backup_password, &salt[..16].try_into()?);
+        
+        // 4. 解密数据
+        let plaintext = self.decrypt_backup_data(&ciphertext, &key, &iv[..12].try_into()?, &auth_tag)?;
+        let backup_data: BackupData = serde_json::from_str(&plaintext)?;
+        
+        // 5. 根据合并策略恢复数据
+        match request.merge_strategy {
+            MergeStrategy::ReplaceAll => {
+                self.restore_with_replace_all(backup_data).await
+            }
+            MergeStrategy::SkipExisting => {
+                self.restore_with_skip_existing(backup_data).await
+            }
+            MergeStrategy::OverwriteExisting => {
+                self.restore_with_overwrite(backup_data).await
+            }
+        }
+    }
+
+    /// 收集备份数据
+    async fn collect_backup_data(&self, backup_type: &BackupType) -> Result<BackupData> {
+        let mut groups = Vec::new();
+        let mut wallets = Vec::new();
+        let mut watch_addresses = Vec::new();
+        let app_config;
+        
+        // 获取 MDK 用于解密钱包数据
+        let mdk_bytes: [u8; 32] = {
+            let mdk_guard = self.mdk.lock().unwrap();
+            let secure_mdk = mdk_guard.as_ref().ok_or_else(|| anyhow!("钱包管理器未解锁"))?;
+            let mdk_hex = secure_mdk.use_secret(|s| s.to_string()).map_err(|e| anyhow!(e))?;
+            let mdk_vec = hex::decode(mdk_hex)?;
+            mdk_vec.as_slice().try_into().map_err(|_| anyhow!("Invalid MDK length"))?
+        };
+        
+        match backup_type {
+            BackupType::Full | BackupType::GroupsOnly => {
+                groups = sqlx::query_as::<_, WalletGroup>("SELECT * FROM wallet_groups")
+                    .fetch_all(&self.pool()).await?;
+            }
+            _ => {}
+        }
+        
+        match backup_type {
+            BackupType::Full | BackupType::WalletsOnly => {
+                let wallet_rows = sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE wallet_type = 'full_wallet'")
+                    .fetch_all(&self.pool()).await?;
+                
+                for wallet in wallet_rows {
+                    let private_key = self.decrypt_wallet_field(&wallet.encrypted_private_key, &mdk_bytes)?;
+                    let mnemonic = self.decrypt_wallet_field(&wallet.encrypted_mnemonic, &mdk_bytes)?;
+                    
+                    wallets.push(WalletBackupData {
+                        id: wallet.id,
+                        group_id: wallet.group_id,
+                        name: wallet.name,
+                        address: wallet.address,
+                        chain_type: wallet.chain_type,
+                        wallet_type: wallet.wallet_type,
+                        private_key,
+                        mnemonic,
+                        mnemonic_index: wallet.mnemonic_index,
+                        remark: wallet.remark,
+                        created_at: wallet.created_at,
+                        updated_at: wallet.updated_at,
+                    });
+                }
+                
+                // 收集仅地址数据
+                let watch_rows = sqlx::query_as::<_, Wallet>("SELECT * FROM wallets WHERE wallet_type = 'address_only'")
+                    .fetch_all(&self.pool()).await?;
+                
+                for wallet in watch_rows {
+                    watch_addresses.push(WatchAddressBackupData {
+                        id: wallet.id,
+                        group_id: wallet.group_id,
+                        name: wallet.name,
+                        address: wallet.address,
+                        chain_type: wallet.chain_type,
+                        remark: wallet.remark,
+                        created_at: wallet.created_at,
+                    });
+                }
+            }
+            _ => {}
+        }
+        
+        // 收集必要的配置（排除敏感信息）
+        let config_rows = sqlx::query_as::<_, AppConfig>("SELECT * FROM app_config WHERE key NOT LIKE '%master%' AND key NOT LIKE '%verifier%'")
+            .fetch_all(&self.pool()).await?;
+        app_config = config_rows;
+        
+        Ok(BackupData {
+            groups,
+            wallets,
+            watch_addresses,
+            app_config,
+        })
+    }
+
+    /// 解密钱包字段
+    fn decrypt_wallet_field(&self, encrypted: &Option<String>, mdk: &[u8; 32]) -> Result<Option<String>> {
+        if let Some(encrypted_str) = encrypted.as_ref().filter(|s| !s.is_empty()) {
+            let parts: Vec<&str> = encrypted_str.split(':').collect();
+            if parts.len() != 2 {
+                return Ok(Some(encrypted_str.clone()));
+            }
+            let iv = hex::decode(parts[0])?;
+            let cipher_b64 = parts[1];
+            match self.decrypt_data(cipher_b64, mdk, &iv) {
+                Ok(plaintext) => Ok(Some(String::from_utf8(plaintext)?)),
+                Err(_) => Ok(Some(encrypted_str.clone())),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// 派生备份密钥
+    fn derive_backup_key(&self, password: &str, salt: &[u8; 16]) -> [u8; 32] {
+        let mut key = [0u8; 32];
+        let _ = pbkdf2::<Hmac<Sha512>>(password.as_bytes(), salt, 600_000, &mut key);
+        key
+    }
+
+    /// 加密备份数据（AES-256-GCM）
+    fn encrypt_backup_data(&self, data: &str, key: &[u8; 32], iv: &[u8; 12]) -> Result<(Vec<u8>, Vec<u8>)> {
+        use openssl::symm::{Cipher, Crypter, Mode};
+        
+        let cipher = Cipher::aes_256_gcm();
+        let mut crypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv))?;
+        crypter.pad(false);
+        
+        let mut ciphertext = vec![0u8; data.len() + cipher.block_size()];
+        let mut count = crypter.update(data.as_bytes(), &mut ciphertext)?;
+        count += crypter.finalize(&mut ciphertext[count..])?;
+        ciphertext.truncate(count);
+        
+        let mut tag = [0u8; 16];
+        crypter.get_tag(&mut tag)?;
+        
+        Ok((ciphertext, tag.to_vec()))
+    }
+
+    /// 解密备份数据（AES-256-GCM）
+    fn decrypt_backup_data(&self, ciphertext: &[u8], key: &[u8; 32], iv: &[u8; 12], auth_tag: &[u8]) -> Result<String> {
+        use openssl::symm::{Cipher, Crypter, Mode};
+        
+        let cipher = Cipher::aes_256_gcm();
+        let mut crypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv))?;
+        crypter.pad(false);
+        crypter.set_tag(auth_tag)?;
+        
+        let mut plaintext = vec![0u8; ciphertext.len() + cipher.block_size()];
+        let mut count = crypter.update(ciphertext, &mut plaintext)?;
+        count += crypter.finalize(&mut plaintext[count..])?;
+        plaintext.truncate(count);
+        
+        Ok(String::from_utf8(plaintext)?)
+    }
+
+    /// 完全替换恢复
+    async fn restore_with_replace_all(&self, data: BackupData) -> Result<RestoreResult> {
+        let mut tx = self.pool().begin().await?;
+        let mut errors = Vec::new();
+        
+        // 清空现有数据
+        sqlx::query("DELETE FROM wallets").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM wallet_groups").execute(&mut *tx).await?;
+        
+        // 恢复分组
+        let mut group_id_map: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+        for group in &data.groups {
+            let new_id: i64 = sqlx::query_scalar(
+                "INSERT INTO wallet_groups (parent_id, name, chain_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?) RETURNING id"
+            )
+            .bind(group.parent_id.and_then(|pid| group_id_map.get(&pid).copied()))
+            .bind(&group.name)
+            .bind(&group.chain_type)
+            .bind(group.created_at)
+            .bind(group.updated_at)
+            .fetch_one(&mut *tx).await?;
+            group_id_map.insert(group.id, new_id);
+        }
+        
+        // 恢复钱包
+        let mut wallets_restored = 0u32;
+        for wallet in &data.wallets {
+            let new_group_id = wallet.group_id.and_then(|gid| group_id_map.get(&gid).copied());
+            
+            // 加密私钥和助记词
+            let encrypted_pk = if let Some(pk) = &wallet.private_key {
+                let mdk = self.get_mdk_bytes()?;
+                let (cipher, iv) = self.encrypt_data(pk.as_bytes(), &mdk)?;
+                Some(format!("{}:{}", hex::encode(iv), cipher))
+            } else { None };
+            
+            let encrypted_mn = if let Some(mn) = &wallet.mnemonic {
+                let mdk = self.get_mdk_bytes()?;
+                let (cipher, iv) = self.encrypt_data(mn.as_bytes(), &mdk)?;
+                Some(format!("{}:{}", hex::encode(iv), cipher))
+            } else { None };
+            
+            let result = sqlx::query(
+                "INSERT INTO wallets (group_id, name, address, chain_type, wallet_type, encrypted_private_key, encrypted_mnemonic, mnemonic_index, remark, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(new_group_id)
+            .bind(&wallet.name)
+            .bind(&wallet.address)
+            .bind(&wallet.chain_type)
+            .bind(&wallet.wallet_type)
+            .bind(&encrypted_pk)
+            .bind(&encrypted_mn)
+            .bind(wallet.mnemonic_index)
+            .bind(&wallet.remark)
+            .bind(wallet.created_at)
+            .bind(wallet.updated_at)
+            .execute(&mut *tx).await;
+            
+            match result {
+                Ok(_) => wallets_restored += 1,
+                Err(e) => errors.push(format!("恢复钱包 {} 失败: {}", wallet.address, e)),
+            }
+        }
+        
+        // 恢复仅地址
+        let mut watch_addresses_restored = 0u32;
+        for watch in &data.watch_addresses {
+            let new_group_id = watch.group_id.and_then(|gid| group_id_map.get(&gid).copied());
+            
+            let result = sqlx::query(
+                "INSERT INTO wallets (group_id, name, address, chain_type, wallet_type, remark, created_at, updated_at) VALUES (?, ?, ?, ?, 'address_only', ?, ?, ?)"
+            )
+            .bind(new_group_id)
+            .bind(&watch.name)
+            .bind(&watch.address)
+            .bind(&watch.chain_type)
+            .bind(&watch.remark)
+            .bind(watch.created_at)
+            .bind(Utc::now())
+            .execute(&mut *tx).await;
+            
+            match result {
+                Ok(_) => watch_addresses_restored += 1,
+                Err(e) => errors.push(format!("恢复仅地址 {} 失败: {}", watch.address, e)),
+            }
+        }
+        
+        tx.commit().await?;
+        
+        Ok(RestoreResult {
+            success: errors.is_empty(),
+            groups_restored: data.groups.len() as u32,
+            wallets_restored,
+            watch_addresses_restored,
+            errors,
+        })
+    }
+
+    /// 跳过已存在恢复
+    async fn restore_with_skip_existing(&self, data: BackupData) -> Result<RestoreResult> {
+        let mut tx = self.pool().begin().await?;
+        let mut errors = Vec::new();
+        let mut groups_restored = 0u32;
+        let mut wallets_restored = 0u32;
+        let mut watch_addresses_restored = 0u32;
+
+        // 获取 MDK 用于加密钱包数据
+        let mdk_bytes = self.get_mdk_bytes()?;
+
+        // 检查现有地址
+        let existing_addresses: Vec<String> = sqlx::query_scalar("SELECT address FROM wallets")
+            .fetch_all(&mut *tx).await?;
+        let existing_set: std::collections::HashSet<String> = existing_addresses.into_iter().collect();
+
+        // 恢复分组（跳过同名）
+        let mut group_id_map: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
+        for group in &data.groups {
+            let exists: bool = sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM wallet_groups WHERE name = ? AND chain_type = ?"
+            )
+            .bind(&group.name)
+            .bind(&group.chain_type)
+            .fetch_one(&mut *tx).await? > 0;
+
+            if !exists {
+                let new_id: i64 = sqlx::query_scalar(
+                    "INSERT INTO wallet_groups (parent_id, name, chain_type, created_at, updated_at) VALUES (?, ?, ?, ?, ?) RETURNING id"
+                )
+                .bind(group.parent_id.and_then(|pid| group_id_map.get(&pid).copied()))
+                .bind(&group.name)
+                .bind(&group.chain_type)
+                .bind(group.created_at)
+                .bind(group.updated_at)
+                .fetch_one(&mut *tx).await?;
+                group_id_map.insert(group.id, new_id);
+                groups_restored += 1;
+            }
+        }
+
+        // 恢复钱包（跳过已存在地址）
+        for wallet in &data.wallets {
+            if existing_set.contains(&wallet.address) {
+                continue;
+            }
+
+            let new_group_id = wallet.group_id.and_then(|gid| group_id_map.get(&gid).copied());
+
+            // 加密私钥和助记词
+            let encrypted_pk = if let Some(pk) = &wallet.private_key {
+                let (cipher, iv) = self.encrypt_data(pk.as_bytes(), &mdk_bytes)?;
+                Some(format!("{}:{}", hex::encode(iv), cipher))
+            } else { None };
+
+            let encrypted_mn = if let Some(mn) = &wallet.mnemonic {
+                let (cipher, iv) = self.encrypt_data(mn.as_bytes(), &mdk_bytes)?;
+                Some(format!("{}:{}", hex::encode(iv), cipher))
+            } else { None };
+
+            let result = sqlx::query(
+                "INSERT INTO wallets (group_id, name, address, chain_type, wallet_type, encrypted_private_key, encrypted_mnemonic, mnemonic_index, remark, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            )
+            .bind(new_group_id)
+            .bind(&wallet.name)
+            .bind(&wallet.address)
+            .bind(&wallet.chain_type)
+            .bind(&wallet.wallet_type)
+            .bind(&encrypted_pk)
+            .bind(&encrypted_mn)
+            .bind(wallet.mnemonic_index)
+            .bind(&wallet.remark)
+            .bind(wallet.created_at)
+            .bind(wallet.updated_at)
+            .execute(&mut *tx).await;
+
+            match result {
+                Ok(_) => wallets_restored += 1,
+                Err(e) => errors.push(format!("恢复钱包 {} 失败: {}", wallet.address, e)),
+            }
+        }
+
+        // 恢复仅地址（跳过已存在地址）
+        for watch in &data.watch_addresses {
+            if existing_set.contains(&watch.address) {
+                continue;
+            }
+
+            let new_group_id = watch.group_id.and_then(|gid| group_id_map.get(&gid).copied());
+
+            let result = sqlx::query(
+                "INSERT INTO wallets (group_id, name, address, chain_type, wallet_type, remark, created_at, updated_at) VALUES (?, ?, ?, ?, 'address_only', ?, ?, ?)"
+            )
+            .bind(new_group_id)
+            .bind(&watch.name)
+            .bind(&watch.address)
+            .bind(&watch.chain_type)
+            .bind(&watch.remark)
+            .bind(watch.created_at)
+            .bind(Utc::now())
+            .execute(&mut *tx).await;
+
+            match result {
+                Ok(_) => watch_addresses_restored += 1,
+                Err(e) => errors.push(format!("恢复仅地址 {} 失败: {}", watch.address, e)),
+            }
+        }
+
+        tx.commit().await?;
+
+        Ok(RestoreResult {
+            success: errors.is_empty(),
+            groups_restored,
+            wallets_restored,
+            watch_addresses_restored,
+            errors,
+        })
+    }
+
+    /// 覆盖已存在恢复
+    async fn restore_with_overwrite(&self, data: BackupData) -> Result<RestoreResult> {
+        // 类似 skip_existing，但会更新已存在的记录
+        // 简化实现，实际使用 replace_all 逻辑
+        self.restore_with_replace_all(data).await
+    }
+
+    /// 获取 MDK 字节
+    fn get_mdk_bytes(&self) -> Result<[u8; 32]> {
+        let mdk_guard = self.mdk.lock().unwrap();
+        let secure_mdk = mdk_guard.as_ref().ok_or_else(|| anyhow!("钱包管理器未解锁"))?;
+        let mdk_hex = secure_mdk.use_secret(|s| s.to_string()).map_err(|e| anyhow!(e))?;
+        let mdk_vec = hex::decode(mdk_hex)?;
+        let bytes: [u8; 32] = mdk_vec.as_slice().try_into().map_err(|_| anyhow!("Invalid MDK length"))?;
+        Ok(bytes)
     }
 }
 

@@ -2146,15 +2146,15 @@ async function handleBeforeClose() {
 
 .side-actions-panel-fixed {
   width: 50px;
-  background: rgba(22, 27, 34, 0.9);
-  border: 1px solid rgba(88, 108, 199, 0.2);
+  background: var(--side-panel-bg);
+  border: 1px solid var(--side-panel-border);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 10px;
   pointer-events: none;
-  box-shadow: 3px 0px 6px 0px rgba(0, 0, 0, 0.2), -1px 0 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--side-panel-shadow);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   height: 100%;
 }
@@ -2174,7 +2174,7 @@ async function handleBeforeClose() {
 .side-actions-divider {
   width: 30px;
   height: 1px;
-  background: linear-gradient(to right, transparent, rgba(88, 108, 199, 0.3), transparent);
+  background: var(--side-divider-bg);
   margin: 8px 0;
 }
 
@@ -2187,16 +2187,16 @@ async function handleBeforeClose() {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  border: 1px solid rgba(88, 108, 199, 0.25);
-  background: rgba(13, 17, 23, 0.6);
+  border: 1px solid var(--side-btn-border);
+  background: var(--side-btn-bg);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .side-actions-content-fixed :deep(.arco-btn:hover) {
-  background: rgba(88, 108, 199, 0.25);
-  border-color: rgba(91, 138, 255, 0.5);
+  background: var(--side-btn-hover-bg);
+  border-color: var(--side-btn-hover-border);
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(91, 138, 255, 0.2);
+  box-shadow: var(--side-btn-hover-shadow);
 }
 
 .side-actions-content-fixed :deep(.arco-btn[type='primary']) {
@@ -2407,9 +2407,9 @@ async function handleBeforeClose() {
   left: 0;
   right: 0;
   height: 40px;
-  background: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
-  border-top: 1px solid rgba(88, 108, 199, 0.2);
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.2);
+  background: var(--status-bar-bg);
+  border-top: 1px solid var(--status-bar-border);
+  box-shadow: var(--status-bar-shadow);
   display: flex;
   align-items: center;
   justify-content: space-between;

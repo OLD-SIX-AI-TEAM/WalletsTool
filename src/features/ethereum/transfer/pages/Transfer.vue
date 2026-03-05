@@ -2008,7 +2008,7 @@ function handleSystemImportConfirm(payload) {
 .progress-slide-leave-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.6, 1); }
 .progress-slide-enter-from { opacity: 0; transform: translateX(-50%) translateY(-100%); }
 .progress-slide-leave-to { opacity: 0; transform: translateX(-50%) translateY(-100%); }
-.status-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 40px; background: linear-gradient(135deg, #161b22 0%, #0d1117 100%); border-top: 1px solid rgba(88, 108, 199, 0.2); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.2); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; z-index: 1000; font-size: 12px; }
+.status-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 40px; background: var(--status-bar-bg); border-top: 1px solid var(--status-bar-border); box-shadow: var(--status-bar-shadow); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; z-index: 1000; font-size: 12px; }
 .status-bar-left { display: flex; align-items: center; gap: 12px; }
 .status-bar-right { display: flex; align-items: center; gap: 8px; }
 .status-group { display: flex; align-items: center; gap: 8px; }
@@ -2063,12 +2063,12 @@ function handleSystemImportConfirm(payload) {
 .status-item-disabled:hover { background: transparent !important; }
 .status-item-disabled:hover .status-label { color: var(--text-color, #1d2129) !important; }
 .status-item-disabled .status-explorer-tag { cursor: not-allowed !important; pointer-events: none; }
-.side-actions-panel-fixed { width: 50px; background: rgba(22, 27, 34, 0.9); border: 1px solid rgba(88, 108, 199, 0.2); border-radius: 8px; display: flex; flex-direction: column; align-items: center; padding: 10px; pointer-events: none; box-shadow: 3px 0px 6px 0px rgba(0, 0, 0, 0.2), -1px 0 4px rgba(0, 0, 0, 0.1); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.side-actions-panel-fixed { width: 50px; background: var(--side-panel-bg); border: 1px solid var(--side-panel-border); border-radius: 8px; display: flex; flex-direction: column; align-items: center; padding: 10px; pointer-events: none; box-shadow: var(--side-panel-shadow); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 .side-actions-panel-fixed.side-actions-panel-collapsed { width: 50px; background: transparent; border: none; box-shadow: none; padding: 0; }
 .side-actions-content-fixed { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: 1; pointer-events: auto; flex: 1; }
-.side-actions-divider { width: 40px; height: 1px; background: linear-gradient(to right, transparent, rgba(88, 108, 199, 0.3), transparent); margin: 15px 0; }
-.side-actions-content-fixed .arco-btn { width: 38px; height: 38px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid rgba(88, 108, 199, 0.25); background: rgba(13, 17, 23, 0.6); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-.side-actions-content-fixed .arco-btn:hover { background: rgba(88, 108, 199, 0.25); border-color: rgba(91, 138, 255, 0.5); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(91, 138, 255, 0.2); }
+.side-actions-divider { width: 40px; height: 1px; background: var(--side-divider-bg); margin: 15px 0; }
+.side-actions-content-fixed .arco-btn { width: 38px; height: 38px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid var(--side-btn-border); background: var(--side-btn-bg); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.side-actions-content-fixed .arco-btn:hover { background: var(--side-btn-hover-bg); border-color: var(--side-btn-hover-border); transform: translateY(-1px); box-shadow: var(--side-btn-hover-shadow); }
 .side-actions-content-fixed .arco-btn > .arco-btn-icon { margin: 0; font-size: 20px; color: var(--color-text-3, #9aa3c2); }
 .side-actions-content-fixed .arco-btn:hover > .arco-btn-icon { color: var(--color-text-1, #e8eaf6); }
 .side-actions-content-fixed .arco-btn[type='primary'] { background: linear-gradient(135deg, #3b5bdb 0%, #5b8aff 100%); border-color: #5b8aff; box-shadow: 0 2px 6px rgba(91, 138, 255, 0.3); }

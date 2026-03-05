@@ -204,3 +204,45 @@ pub async fn export_watch_addresses(
 ) -> Result<Vec<WatchAddressExportData>, String> {
     state.export_watch_addresses(&ids).await.map_err(|e| e.to_string())
 }
+
+// ==================== Encrypted Cloud Backup Commands ====================
+
+/// 创建加密备份
+#[tauri::command(rename_all = "snake_case")]
+pub async fn create_encrypted_backup(
+    state: State<'_, WalletManagerService>,
+    request: CreateBackupRequest,
+) -> Result<EncryptedBackup, String> {
+    request.validate_password()?;
+    state.create_encrypted_backup(request).await.map_err(|e| e.to_string())
+}
+
+/// 恢复加密备份
+#[tauri::command(rename_all = "snake_case")]
+pub async fn restore_encrypted_backup(
+    state: State<'_, WalletManagerService>,
+    request: RestoreBackupRequest,
+) -> Result<RestoreResult, String> {
+    state.restore_encrypted_backup(request).await.map_err(|e| e.to_string())
+}
+
+/// 将备份保存到文件
+#[tauri::command(rename_all = "snake_case")]
+pub async fn save_backup_to_file(
+    backup: EncryptedBackup,
+    file_path: String,
+) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(&backup).map_err(|e| e.to_string())?;
+    tokio::fs::write(&file_path, json).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// 从文件加载备份
+#[tauri::command(rename_all = "snake_case")]
+pub async fn load_backup_from_file(
+    file_path: String,
+) -> Result<EncryptedBackup, String> {
+    let json = tokio::fs::read_to_string(&file_path).await.map_err(|e| e.to_string())?;
+    let backup: EncryptedBackup = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    Ok(backup)
+}

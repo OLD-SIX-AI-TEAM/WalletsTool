@@ -239,3 +239,152 @@ pub struct WatchAddressExportData {
 pub struct ExportWatchAddressesRequest {
     pub ids: Vec<i64>,
 }
+
+// ==================== Encrypted Cloud Backup Types ====================
+
+/// 加密备份元数据
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupMetadata {
+    pub version: String,
+    pub created_at: DateTime<Utc>,
+    pub wallet_count: u32,
+    pub group_count: u32,
+    pub watch_address_count: u32,
+    pub backup_type: BackupType,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackupType {
+    #[serde(rename = "full")]
+    Full,
+    #[serde(rename = "wallets_only")]
+    WalletsOnly,
+    #[serde(rename = "groups_only")]
+    GroupsOnly,
+}
+
+/// 加密备份数据结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncryptedBackup {
+    /// 备份元数据（明文，用于预览）
+    pub metadata: BackupMetadata,
+    /// 加密的数据（包含所有钱包、分组、仅地址数据）
+    pub encrypted_data: String,
+    /// 加密算法版本
+    pub encryption_version: String,
+    /// 盐值（用于密钥派生）
+    pub salt: String,
+    /// IV（初始化向量）
+    pub iv: String,
+    /// 认证标签（AES-GCM）
+    pub auth_tag: String,
+}
+
+/// 备份数据内容（加密前）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupData {
+    pub groups: Vec<WalletGroup>,
+    pub wallets: Vec<WalletBackupData>,
+    pub watch_addresses: Vec<WatchAddressBackupData>,
+    pub app_config: Vec<AppConfig>,
+}
+
+/// 钱包备份数据（包含解密的敏感信息）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WalletBackupData {
+    pub id: i64,
+    pub group_id: Option<i64>,
+    pub name: Option<String>,
+    pub address: String,
+    pub chain_type: String,
+    pub wallet_type: String,
+    pub private_key: Option<String>,
+    pub mnemonic: Option<String>,
+    pub mnemonic_index: Option<i64>,
+    pub remark: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// 仅地址备份数据
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchAddressBackupData {
+    pub id: i64,
+    pub group_id: Option<i64>,
+    pub name: Option<String>,
+    pub address: String,
+    pub chain_type: String,
+    pub remark: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// 创建备份请求
+#[derive(Debug, Deserialize)]
+pub struct CreateBackupRequest {
+    pub backup_password: String,
+    pub description: Option<String>,
+    pub backup_type: BackupType,
+}
+
+impl CreateBackupRequest {
+    pub fn validate_password(&self) -> Result<(), String> {
+        let password = &self.backup_password;
+        
+        if password.len() < 12 {
+            return Err("密码长度至少需要12位".to_string());
+        }
+        
+        if !password.chars().any(|c| c.is_ascii_uppercase()) {
+            return Err("密码需要包含大写字母".to_string());
+        }
+        
+        if !password.chars().any(|c| c.is_ascii_lowercase()) {
+            return Err("密码需要包含小写字母".to_string());
+        }
+        
+        if !password.chars().any(|c| c.is_ascii_digit()) {
+            return Err("密码需要包含数字".to_string());
+        }
+        
+        let special_chars = "!@#$%^&*()_+-=[]{}|;:,.<>?";
+        if !password.chars().any(|c| special_chars.contains(c)) {
+            return Err("密码需要包含特殊字符".to_string());
+        }
+        
+        Ok(())
+    }
+}
+
+/// 恢复备份请求
+#[derive(Debug, Deserialize)]
+pub struct RestoreBackupRequest {
+    pub backup_data: EncryptedBackup,
+    pub backup_password: String,
+    pub merge_strategy: MergeStrategy,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MergeStrategy {
+    /// 完全替换现有数据
+    #[serde(rename = "replace_all")]
+    ReplaceAll,
+    /// 合并，跳过冲突
+    #[serde(rename = "skip_existing")]
+    SkipExisting,
+    /// 合并，覆盖冲突
+    #[serde(rename = "overwrite_existing")]
+    OverwriteExisting,
+}
+
+/// 备份恢复结果
+#[derive(Debug, Clone, Serialize)]
+pub struct RestoreResult {
+    pub success: bool,
+    pub groups_restored: u32,
+    pub wallets_restored: u32,
+    pub watch_addresses_restored: u32,
+    pub errors: Vec<String>,
+}

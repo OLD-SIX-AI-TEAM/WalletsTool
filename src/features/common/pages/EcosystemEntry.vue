@@ -414,7 +414,7 @@ p {
 }
 
 .light-theme .solana-card .icon-wrapper {
-  background: linear-gradient(135deg, rgba(0, 255, 163, 0.15), rgba(220, 31, 255, 0.15));
-  color: #10b981; /* 稍深一点的绿色以在浅色背景下可见 */
+  background: linear-gradient(135deg, rgba(0, 255, 163, 0.25), rgba(220, 31, 255, 0.25));
+  color: #5b21b6;
 }
 </style>

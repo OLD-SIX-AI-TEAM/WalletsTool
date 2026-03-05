@@ -631,6 +631,11 @@ async fn main() {
             wallets_tool::wallet_manager::commands::update_watch_address,
             wallets_tool::wallet_manager::commands::delete_watch_address,
             wallets_tool::wallet_manager::commands::export_watch_addresses,
+            // encrypted cloud backup commands
+            wallets_tool::wallet_manager::commands::create_encrypted_backup,
+            wallets_tool::wallet_manager::commands::restore_encrypted_backup,
+            wallets_tool::wallet_manager::commands::save_backup_to_file,
+            wallets_tool::wallet_manager::commands::load_backup_from_file,
             // browser automation commands
             wallets_tool::airdrop::commands::init_browser_automation_tables,
             wallets_tool::airdrop::commands::get_airdrop_wallets,

@@ -3,12 +3,13 @@ import { ref, onMounted, reactive, watch, nextTick, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Message, Notification, Modal } from '@arco-design/web-vue';
-import { IconPlus, IconDelete, IconEdit, IconDownload, IconToBottom, IconToTop, IconLock, IconFolder, IconFile, IconInfoCircle } from '@arco-design/web-vue/es/icon';
+import { IconPlus, IconDelete, IconEdit, IconDownload, IconToBottom, IconToTop, IconLock, IconFolder, IconFile, IconInfoCircle, IconCloud } from '@arco-design/web-vue/es/icon';
 import { useRouter } from 'vue-router';
 import * as XLSX from 'xlsx';
 import TitleBar from '@/components/TitleBar.vue';
 import VirtualScrollerTable from '@/components/VirtualScrollerTable.vue';
 import SecretRevealModal from '@/components/SecretRevealModal.vue';
+import BackupManager from '@/components/BackupManager.vue';
 import { downloadWithDialog, openDirectory } from '@/utils/downloadWithDialog';
 import { save } from '@tauri-apps/plugin-dialog';
 import { openSealedSecret } from '@/utils/secretCrypto';
@@ -143,6 +144,9 @@ const showExportModal = ref(false);
 const exportPassword = ref('');
 const exportPasswordRef = ref(null);
 const isExporting = ref(false);
+
+// Backup Manager
+const showBackupManager = ref(false);
 
 // 监听导出弹窗显示，自动聚焦输入框，关闭时清空密码
 watch(showExportModal, (newVal) => {
@@ -381,18 +385,22 @@ const handleBatchDeleteWatchAddresses = () => {
     return;
   }
 
+  console.log('[DEBUG] 批量删除仅地址，选中的ID:', selectedWatchAddressIds.value);
+
   Modal.warning({
     title: '确认批量删除',
     content: `确定要删除选中的 ${selectedWatchAddressIds.value.length} 个仅地址吗？删除后无法恢复，确定继续吗？`,
     onOk: async () => {
       try {
         for (const id of selectedWatchAddressIds.value) {
+          console.log('[DEBUG] 删除仅地址 ID:', id);
           await invoke('delete_watch_address', { id });
         }
         selectedWatchAddressIds.value = [];
         await loadWatchAddresses();
         Message.success('批量删除成功');
       } catch (e) {
+        console.error('[DEBUG] 删除失败:', e);
         Message.error('删除失败: ' + e);
       }
     }
@@ -657,18 +665,22 @@ const handleBatchDeleteWallets = () => {
     return;
   }
 
+  console.log('[DEBUG] 批量删除完整钱包，选中的ID:', selectedWalletIds.value);
+
   Modal.warning({
     title: '确认批量删除',
     content: `确定要删除选中的 ${selectedWalletIds.value.length} 个钱包吗？删除后无法恢复，确定继续吗？`,
     onOk: async () => {
       try {
         for (const id of selectedWalletIds.value) {
+          console.log('[DEBUG] 删除钱包 ID:', id);
           await invoke('delete_wallet', { id });
         }
         selectedWalletIds.value = [];
         await loadWallets();
         Message.success('批量删除成功');
       } catch (e) {
+        console.error('[DEBUG] 删除失败:', e);
         Message.error('删除失败: ' + e);
       }
     }
@@ -715,6 +727,9 @@ watch(importKeyMode, (mode) => {
 
 // Watch view type changes and load appropriate data
 watch(currentViewType, (newVal) => {
+  // 切换视图时清空选中状态，避免误删
+  selectedWalletIds.value = [];
+  selectedWatchAddressIds.value = [];
   if (newVal === 'full_wallet') {
     loadWallets();
   } else {
@@ -1208,6 +1223,14 @@ onMounted(async () => {
     }
   };
 
+  // 处理备份恢复后刷新数据
+  const handleBackupRestored = async () => {
+    Message.success('备份恢复成功，正在刷新数据...');
+    await loadGroups();
+    await loadWallets();
+    await loadWatchAddresses();
+  };
+
   const onNodeClick = (node) => {
     // 无论是否是叶子节点，都尝试展开/折叠
     // 只有当有子节点时，展开操作才有视觉效果，但这由 Tree 组件控制
@@ -1369,6 +1392,9 @@ onMounted(async () => {
     Modal.warning({
         title: '确认删除',
         content: '确定要删除该分组吗？删除后该分组下的子分组将被一并删除，所有分组下的钱包信息将被删除。',
+        okText: '确认删除',
+        cancelText: '取消',
+        hideCancel: false,
         onOk: async () => {
             try {
                 await invoke('delete_group', { id: groupId });
@@ -2067,7 +2093,7 @@ const confirmExport = async () => {
                       :disabled="selectedWalletIds.length === 0"
                       @click="handleExportWallets"
                     >
-                        <template #icon><icon-download /></template>
+                        <template #icon><icon-to-top /></template>
                         导出 ({{ selectedWalletIds.length }})
                     </a-button>
                     <a-button
@@ -2110,12 +2136,22 @@ const confirmExport = async () => {
                 </template>
 
                 <a-button
-                  style="float: right;"
+                  style="float: right; margin-left: 10px;"
                   type="outline"
                   @click="showChangePasswordModal = true"
                 >
                     <template #icon><icon-lock /></template>
                     修改密码
+                </a-button>
+
+                <a-button
+                  style="float: right;"
+                  type="primary"
+                  status="success"
+                  @click="showBackupManager = true"
+                >
+                    <template #icon><icon-cloud /></template>
+                    云端备份
                 </a-button>
             </div>
 
@@ -2857,6 +2893,12 @@ const confirmExport = async () => {
             </div>
         </div>
     </a-modal>
+
+    <!-- Backup Manager -->
+    <BackupManager
+      v-model:visible="showBackupManager"
+      @backup-restored="handleBackupRestored"
+    />
   </div>
 </template>
 
@@ -3662,6 +3704,73 @@ const confirmExport = async () => {
     color: var(--color-text-1, #e8eaf6);
     border-bottom: 1px solid rgba(88, 108, 199, 0.15);
     padding-bottom: 10px;
+}
+
+/* 右键菜单紧凑样式 */
+:deep(.arco-dropdown) {
+    padding: 0;
+    min-width: 100px;
+    overflow: visible;
+}
+
+:deep(.arco-dropdown-list) {
+    padding: 4px;
+    overflow: visible;
+}
+
+:deep(.arco-dropdown-option) {
+    padding: 2px 10px;
+    min-height: 24px;
+    font-size: 13px;
+    border-radius: 4px;
+    overflow: visible;
+}
+
+:deep(.arco-dropdown-option-content) {
+    line-height: 1.3;
+}
+
+:deep(.arco-dropdown-wrapper) {
+    padding: 0;
+    overflow: visible;
+}
+
+/* 确保 hover 背景色完整显示 - 禁用任何 transform 效果 */
+:deep(.arco-dropdown-option:hover),
+:deep(.arco-dropdown-option.arco-dropdown-option-hover) {
+    background-color: var(--color-fill-2);
+    transform: none !important;
+    box-sizing: border-box;
+}
+
+:deep(.arco-dropdown-option.arco-dropdown-option-active) {
+    background-color: rgba(var(--primary-6), 0.1);
+    transform: none !important;
+}
+
+/* 强制 dropdown 选项不使用 transform */
+:deep(.arco-dropdown-option) {
+    transform: none !important;
+    transition: background-color 0.2s ease !important;
+    width: auto;
+    min-width: calc(100% - 8px);
+    margin: 0 4px;
+    box-sizing: border-box;
+}
+
+/* 修复 dropdown 弹出层容器 */
+:deep(.arco-trigger-popup) {
+    overflow: visible;
+}
+
+:deep(.arco-trigger-content) {
+    overflow: visible;
+}
+
+/* 强制 dropdown 内容区域完整显示 */
+:deep(.arco-dropdown-menu) {
+    overflow: visible;
+    padding: 4px;
 }
 
 </style>

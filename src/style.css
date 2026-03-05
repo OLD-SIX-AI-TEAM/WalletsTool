@@ -66,6 +66,23 @@
     --table-selected-bg: #e8f4ff;
     --loading-bg: rgba(255, 255, 255, 0.8);
     --overlay-bg: rgba(0, 0, 0, 0.5);
+
+    /* 状态栏和侧边栏主题变量 - 明亮主题 */
+    --status-bar-bg: linear-gradient(135deg, #ffffff 0%, #f7f8fa 100%);
+    --status-bar-border: #e5e6eb;
+    --status-bar-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+
+    --side-panel-bg: #ffffff;
+    --side-panel-border: #e5e6eb;
+    --side-panel-shadow: 3px 0px 6px 0px rgba(0, 0, 0, 0.08), -1px 0 4px rgba(0, 0, 0, 0.04);
+
+    --side-btn-bg: #f2f3f5;
+    --side-btn-border: #e5e6eb;
+    --side-btn-hover-bg: #e5e6eb;
+    --side-btn-hover-border: #c9cdd4;
+    --side-btn-hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+
+    --side-divider-bg: linear-gradient(to right, transparent, #e5e6eb, transparent);
 }
 
 /* 暗黑主题变量 - 深蓝黑渐变风格 */
@@ -130,6 +147,23 @@
     --color-header-bg: #161b22;
     --color-footer-bg: #0d1117;
     --color-sider-bg: #161b22;
+
+    /* 状态栏和侧边栏主题变量 */
+    --status-bar-bg: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
+    --status-bar-border: rgba(88, 108, 199, 0.2);
+    --status-bar-shadow: 0 -2px 8px rgba(0, 0, 0, 0.2);
+
+    --side-panel-bg: rgba(22, 27, 34, 0.9);
+    --side-panel-border: rgba(88, 108, 199, 0.2);
+    --side-panel-shadow: 3px 0px 6px 0px rgba(0, 0, 0, 0.2), -1px 0 4px rgba(0, 0, 0, 0.1);
+
+    --side-btn-bg: rgba(13, 17, 23, 0.6);
+    --side-btn-border: rgba(88, 108, 199, 0.25);
+    --side-btn-hover-bg: rgba(88, 108, 199, 0.25);
+    --side-btn-hover-border: rgba(91, 138, 255, 0.5);
+    --side-btn-hover-shadow: 0 2px 8px rgba(91, 138, 255, 0.2);
+
+    --side-divider-bg: linear-gradient(to right, transparent, rgba(88, 108, 199, 0.3), transparent);
 }
 
 /* 应用主题变量 */

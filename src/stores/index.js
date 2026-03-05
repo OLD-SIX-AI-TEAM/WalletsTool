@@ -68,17 +68,13 @@ export const useThemeStore = defineStore('theme', () => {
         mediaQueryListener = null
     }
     
-    // 切换主题（dark -> light -> auto -> dark）
+    // 切换主题（light <-> dark，不使用auto）
     function toggleTheme() {
-        const themeCycle = { 'dark': 'light', 'light': 'auto', 'auto': 'dark' }
-        currentTheme.value = themeCycle[currentTheme.value] || 'auto'
-        applyTheme(currentTheme.value)
-        localStorage.setItem('theme', currentTheme.value)
-        
-        // 如果是auto模式，开始监听系统主题变化
-        if (currentTheme.value === 'auto') {
-            startListeningToSystemTheme()
-        }
+        const currentEffective = getEffectiveTheme()
+        const newTheme = currentEffective === 'dark' ? 'light' : 'dark'
+        currentTheme.value = newTheme
+        applyTheme(newTheme)
+        localStorage.setItem('theme', newTheme)
         
         // 通过Tauri事件系统广播主题变化到其他窗口
         if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
