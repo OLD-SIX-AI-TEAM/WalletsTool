@@ -6,7 +6,14 @@ use tokio::sync::{Mutex, RwLock};
 use uuid::Uuid;
 use std::collections::HashMap;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
+
+/// Windows 创建进程的标志，用于隐藏窗口
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RecordingSession {
@@ -84,7 +91,7 @@ impl PlaywrightRecorder {
         let npx_cmd = if cfg!(windows) { "npx.cmd" } else { "npx" };
         println!("[Recorder] 检查 npx 可用性...");
         let check_start = std::time::Instant::now();
-        let npx_check = Command::new(npx_cmd)
+        let npx_check = create_hidden_command(npx_cmd)
             .args(&["--version"])
             .output();
         println!("[Recorder] npx 检查耗时: {:?}", check_start.elapsed());
@@ -116,7 +123,7 @@ impl PlaywrightRecorder {
         println!("[Recorder] 启动 Node.js 进程...");
         let node_start = std::time::Instant::now();
         let node_cmd = if cfg!(windows) { "node.cmd" } else { "node" };
-        let mut child = Command::new(node_cmd)
+        let mut child = create_hidden_command(node_cmd)
             .arg(script_path.to_str().unwrap())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -288,7 +295,7 @@ impl PlaywrightRecorder {
             
             #[cfg(windows)]
             {
-                let output = Command::new("taskkill")
+                let output = create_hidden_command("taskkill")
                     .args(&["/F", "/T", "/PID", &pid.to_string()])
                     .output();
                 if let Ok(output) = output {
@@ -298,7 +305,7 @@ impl PlaywrightRecorder {
             
             #[cfg(not(windows))]
             {
-                let _ = Command::new("kill")
+                let _ = create_hidden_command("kill")
                     .args(&["-9", &pid.to_string()])
                     .output();
             }
@@ -2109,6 +2116,20 @@ pub struct CliCheckResult {
     pub tools: Vec<CliToolStatus>,
 }
 
+/// 创建一个隐藏窗口的命令（Windows）
+#[cfg(windows)]
+fn create_hidden_command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    cmd.creation_flags(CREATE_NO_WINDOW);
+    cmd
+}
+
+/// 创建一个普通命令（非 Windows）
+#[cfg(not(windows))]
+fn create_hidden_command(program: &str) -> Command {
+    Command::new(program)
+}
+
 #[tauri::command]
 pub async fn check_cli_tools() -> Result<CliCheckResult, String> {
     let mut tools = Vec::new();
@@ -2116,7 +2137,7 @@ pub async fn check_cli_tools() -> Result<CliCheckResult, String> {
 
     // 检查 Node.js
     let node_cmd = if cfg!(windows) { "node.exe" } else { "node" };
-    let node_status = match Command::new(node_cmd).arg("--version").output() {
+    let node_status = match create_hidden_command(node_cmd).arg("--version").output() {
         Ok(output) if output.status.success() => {
             let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
             CliToolStatus {
@@ -2140,7 +2161,7 @@ pub async fn check_cli_tools() -> Result<CliCheckResult, String> {
 
     // 检查 npm
     let npm_cmd = if cfg!(windows) { "npm.cmd" } else { "npm" };
-    let npm_status = match Command::new(npm_cmd).arg("--version").output() {
+    let npm_status = match create_hidden_command(npm_cmd).arg("--version").output() {
         Ok(output) if output.status.success() => {
             let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
             CliToolStatus {
@@ -2164,7 +2185,7 @@ pub async fn check_cli_tools() -> Result<CliCheckResult, String> {
 
     // 检查 npx
     let npx_cmd = if cfg!(windows) { "npx.cmd" } else { "npx" };
-    let npx_status = match Command::new(npx_cmd).arg("--version").output() {
+    let npx_status = match create_hidden_command(npx_cmd).arg("--version").output() {
         Ok(output) if output.status.success() => {
             let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
             CliToolStatus {
@@ -2187,7 +2208,7 @@ pub async fn check_cli_tools() -> Result<CliCheckResult, String> {
     tools.push(npx_status);
 
     // 检查 Playwright（可选，因为会自动安装）
-    let playwright_status = match Command::new(npx_cmd)
+    let playwright_status = match create_hidden_command(npx_cmd)
         .args(&["-y", "playwright", "--version"])
         .output() 
     {
@@ -2253,7 +2274,7 @@ pub async fn install_node_environment() -> Result<InstallResult, String> {
         log_info(&mut logs, "检测到 Windows 系统，使用 winget 安装 Node.js...");
         
         // 首先检查 winget 是否可用
-        let winget_check = Command::new("winget")
+        let winget_check = create_hidden_command("winget")
             .arg("--version")
             .output();
         
@@ -2269,7 +2290,7 @@ pub async fn install_node_environment() -> Result<InstallResult, String> {
         log_info(&mut logs, "正在使用 winget 安装 Node.js...");
         
         // 使用 winget 安装 Node.js
-        let install_output = Command::new("winget")
+        let install_output = create_hidden_command("winget")
             .args(&[
                 "install",
                 "--id", "OpenJS.NodeJS",
@@ -2344,7 +2365,7 @@ pub async fn install_node_environment() -> Result<InstallResult, String> {
         // macOS 平台使用 brew 安装
         log_info(&mut logs, "检测到 macOS 系统，使用 Homebrew 安装 Node.js...");
         
-        let install_output = Command::new("brew")
+        let install_output = create_hidden_command("brew")
             .args(&["install", "node"])
             .output();
         
@@ -2388,7 +2409,7 @@ pub async fn install_node_environment() -> Result<InstallResult, String> {
         // Linux 平台尝试使用 apt
         log_info(&mut logs, "检测到 Linux 系统，使用 apt 安装 Node.js...");
         
-        let install_output = Command::new("sh")
+        let install_output = create_hidden_command("sh")
             .args(&["-c", "sudo apt update && sudo apt install -y nodejs npm"])
             .output();
         

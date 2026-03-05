@@ -6,16 +6,15 @@ use tokio::time::{timeout, Duration};
 
 // 国内可用的 GitHub 代理镜像列表
 const GH_PROXY_MIRRORS: &[&str] = &[
-    "https://gh.api.99988866.xyz/",
     "https://gh-proxy.com/",
     "https://ghproxy.net/",
     "https://gh-proxy.org/",
 ];
 
 // 单个请求超时时间（秒）
-const REQUEST_TIMEOUT_SECS: u64 = 5;
+const REQUEST_TIMEOUT_SECS: u64 = 3;
 // 总超时时间（秒）
-const TOTAL_TIMEOUT_SECS: u64 = 8;
+const TOTAL_TIMEOUT_SECS: u64 = 5;
 
 #[derive(Debug, Deserialize, Clone)]
 struct GitHubRelease {
