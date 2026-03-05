@@ -94,12 +94,23 @@ export const useThemeStore = defineStore('theme', () => {
             currentTheme.value = theme
             applyTheme(theme)
             localStorage.setItem('theme', theme)
-            
+
             // 如果是auto模式，开始监听系统主题变化
             if (theme === 'auto') {
                 startListeningToSystemTheme()
             } else {
                 stopListeningToSystemTheme()
+            }
+
+            // 通过Tauri事件系统广播主题变化到其他窗口
+            if (typeof window !== 'undefined' && window.__TAURI_INTERNALS__) {
+                try {
+                    import('@tauri-apps/api/event').then(({ emit }) => {
+                        emit('theme-changed', { theme: currentTheme.value })
+                    })
+                } catch (error) {
+                    console.error('Failed to emit theme change event:', error)
+                }
             }
         }
     }
