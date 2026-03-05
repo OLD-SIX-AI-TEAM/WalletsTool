@@ -140,7 +140,7 @@ jobs:
           tagName: ${{ github.ref_name || github.event.inputs.version }}
           releaseName: 'Wallets Tool ${{ github.ref_name || github.event.inputs.version }}'
           releaseBody: |
-            ## 🎉 新版本发布 v0.4.26
+            ## 🎉 新版本发布 v0.4.27
             
             ### 📦 安装包下载
             - **Windows**: 下载 `.exe` 文件
@@ -148,7 +148,9 @@ jobs:
             ### 🔄 更新说明
             ### ✨ New Features | 新功能
             
-            - **主题:** 实现深蓝黑渐变暗黑主题风格
+            - **wallet:** 添加加密云备份功能及UI优化
+            
+
             
 
             
