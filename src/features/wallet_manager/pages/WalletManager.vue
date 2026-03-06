@@ -3687,12 +3687,12 @@ const confirmExport = async () => {
 }
 
 :root[data-theme="dark"] :deep(.arco-tree-node-selected) {
-    background-color: rgba(91, 138, 255, 0.2);
+    background-color: transparent;
     color: var(--color-text-1, #e8eaf6);
 }
 
 :root[data-theme="dark"] .tree-node-content.is-selected {
-    background-color: rgba(91, 138, 255, 0.2);
+    background-color: transparent;
     color: #5b8aff;
 }
 
