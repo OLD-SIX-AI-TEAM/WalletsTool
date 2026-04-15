@@ -112,7 +112,7 @@ pub async fn sol_transfer(
         let base_fee = 5000;
         let mut priority_fee = 0;
         // Simple transfer usually takes < 500 CU. Set 1000 to be safe and deterministic.
-        let compute_unit_limit = 1000; 
+        let compute_unit_limit = 1000;
 
         if let Some(price) = config.gas_price {
             if price > 0 {
@@ -123,9 +123,13 @@ pub async fn sol_transfer(
         }
 
         let total_fee = base_fee + priority_fee;
-        
+
         if balance <= total_fee {
-            return Ok(TransferResult { success: false, tx_hash: None, error: Some(format!("余额不足支付手续费 (余额: {}, 手续费: {})", balance, total_fee)) });
+            return Ok(TransferResult {
+                success: false,
+                tx_hash: None,
+                error: Some(format!("余额不足以支付手续费 (余额: {} lamports, 手续费: {} lamports)", balance, total_fee)),
+            });
         }
 
         lamports = balance - total_fee;

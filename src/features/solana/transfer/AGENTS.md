@@ -44,6 +44,14 @@ Transfer supports three import sources:
 - **File import:** `composables/useDataOperations.ts` reads CSV/XLSX and appends rows into `data.value`.
 - **System import:** `src/components/WalletSystemImportModal.vue` selects wallets from wallet manager (`get_wallets` / `get_watch_addresses`). For transfer, it requests secrets via `get_wallet_secrets` (password required) and only imports wallets that have private keys.
 
+## PROXY CONFIGURATION
+
+- Proxy config is **ecosystem-scoped** to avoid sharing with EVM in the same window.
+- `windowId` format: `{label}_sol` (e.g. `transfer1_sol`).
+- Uses `useWindowProxy('sol')` composable (`src/composables/useWindowProxy.ts`) for all proxy state, init, and cleanup.
+- Backend (`proxy_manager.rs`) is the **single source of truth**; no localStorage caching for proxy config.
+- `ProxyConfigModal` receives `:window-id="currentWindowId"` so load/save are deterministic per window.
+
 ## BACKEND COMMANDS
 
 ```javascript

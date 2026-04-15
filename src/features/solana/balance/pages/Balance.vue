@@ -15,6 +15,7 @@ import VirtualScrollerTable from '@/components/VirtualScrollerTable.vue'
 import { debounce } from '@/utils/debounce.js'
 import { WINDOW_CONFIG } from '@/utils/windowNames'
 import { exportWithDialog, openDirectory } from '@/utils/exportWithDialog'
+import { useWindowProxy } from '@/composables/useWindowProxy'
 
 // 懒加载非关键组件
 const ChainManagement = defineAsyncComponent(() => import('@/components/ChainManagement.vue'))
@@ -180,8 +181,6 @@ let deleteItemVisible = ref(false)
 let currentCoin = ref({})
 // 当前数据的key
 let currentItemKey = ref('')
-// 当前窗口ID
-let currentWindowId = ref('')
 // 链管理组件引用
 const chainManageRef = ref(null);
 // RPC管理组件引用
@@ -192,10 +191,7 @@ const tokenManageRef = ref(null);
 const proxyConfigRef = ref(null);
 // 文件上传输入框引用
 const uploadInputRef = ref(null);
-const proxyConfigVisible = ref(false);
-const proxyEnabled = ref(false);
-const proxyStatus = ref('未配置');
-const proxyCount = ref(0);
+const { currentWindowId, getScopedWindowId, proxyConfigVisible, proxyEnabled, proxyStatus, proxyCount, proxyStatusColor, openProxyConfig, handleProxyConfigChange, initProxyStatus, cleanupProxyConfig } = useWindowProxy('sol');
 // 高级筛选相关变量
 const advancedFilterVisible = ref(false);
 const filterForm = reactive({
@@ -436,17 +432,17 @@ onMounted(async () => {
   const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
   if (isTauri) {
     try {
-      const currentWindow = getCurrentWindow();
-      
+      const currentWindow = await getCurrentWindow();
+
       // 获取窗口标题
       const title = await currentWindow.title();
       if (title) {
         windowTitle.value = title;
       }
-      
-      // 获取当前窗口ID
-      currentWindowId.value = currentWindow.label;
-      
+
+      // 立即设置窗口ID（代理等业务需要）
+      currentWindowId.value = getScopedWindowId(currentWindow.label);
+
       // 检查钱包管理是否已初始化（只需检查是否设置过密码，不需要当前解锁）
       try { walletDbReady.value = await invoke('is_wallet_manager_initialized'); } catch (e) { walletDbReady.value = false; }
 
@@ -484,10 +480,10 @@ onMounted(async () => {
 
   // 页面加载完成后发送事件
   nextTick(() => {
-    setTimeout(() => {
+    setTimeout(async () => {
       const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
       if (isTauri) {
-        const currentWindow = getCurrentWindow();
+        const currentWindow = await getCurrentWindow();
         currentWindow.emit('page-loaded');
       }
     }, 50);
@@ -1038,7 +1034,7 @@ async function queryBalanceBatch(batchData, startIndex) {
   try {
     const params = {
       items: batchData.map((item, index) => ({
-        key: String(startIndex + index), 
+        key: String(startIndex + index),
         address: item.address,
         private_key: null,
         plat_balance: null,
@@ -1049,7 +1045,12 @@ async function queryBalanceBatch(batchData, startIndex) {
       })),
       window_id: currentWindowId.value,
       query_id: `query_${Date.now()}_${startIndex}`,
-      chain: chainValue.value || 'sol'
+      chain: chainValue.value || 'sol',
+      coin_config: {
+        coin_type: currentCoin.value.coin_type,
+        contract_address: currentCoin.value.contract_address || '',
+        abi: currentCoin.value.abi || null
+      }
     };
 
     if (balanceStopFlag.value) return;
@@ -1057,8 +1058,7 @@ async function queryBalanceBatch(batchData, startIndex) {
     const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
     if (isTauri) {
       await invoke('sol_query_balances_with_updates', {
-        params,
-        window: getCurrentWindow() 
+        params
       });
     } else {
       await new Promise(r => setTimeout(r, 500));
@@ -1201,66 +1201,11 @@ function handleTokenUpdated() {
   chainChange();
 }
 
-async function openProxyConfig() {
-  proxyConfigVisible.value = true;
-}
-
-function handleProxyConfigChange(config) {
-  proxyEnabled.value = config.enabled;
-  proxyCount.value = config.proxies ? config.proxies.length : 0;
-  if (config.enabled && proxyCount.value > 0) {
-    proxyStatus.value = '已配置';
-  } else {
-    proxyStatus.value = '未配置';
-  }
-  const currentWindow = getCurrentWindow();
-  const storageKey = `proxy_config_${currentWindow.label}`;
-  localStorage.setItem(storageKey, JSON.stringify({
-    enabled: config.enabled,
-    proxies: config.proxies || []
-  }));
-}
-
-const proxyStatusColor = computed(() => {
-  switch (proxyStatus.value) {
-    case '已配置': return '#00b42a';
-    case '连接中': return '#ff7d00';
-    case '已连接': return '#00b42a';
-    case '连接失败': return '#f53f3f';
-    default: return '#86909c';
-  }
-});
-
-async function initProxyStatus() {
-  try {
-    const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
-    if (isTauri) {
-      let windowId = currentWindowId.value;
-      if (!windowId || windowId.trim() === '') {
-        windowId = generateWindowId();
-        currentWindowId.value = windowId;
-      }
-      await invoke('set_proxy_window_id', { windowId });
-      const currentWindow = await getCurrentWindow();
-      const proxyStorageKey = `proxy_config_${currentWindow.label}`;
-      const storedConfig = localStorage.getItem(proxyStorageKey);
-      let config;
-      if (storedConfig) {
-        try { config = JSON.parse(storedConfig); } catch (e) { config = await invoke('get_proxy_config_for_window', { windowId }); }
-      } else {
-        config = await invoke('get_proxy_config_for_window', { windowId });
-      }
-      handleProxyConfigChange(config);
-    }
-  } catch (error) {
-    console.error('初始化代理状态失败:', error);
-  }
-}
-
 async function handleBeforeClose() {
   if (balanceLoading.value) {
     balanceStopFlag.value = true;
   }
+  await cleanupProxyConfig();
 }
 </script>
 
@@ -1649,13 +1594,7 @@ async function handleBeforeClose() {
   <TokenManagement ref="tokenManageRef" :chain-value="chainValue" :chain-options="chainOptions" @token-updated="handleTokenUpdated" />
   
   <!-- 代理配置弹窗 -->
-  <ProxyConfigModal 
-    v-if="proxyConfigVisible" 
-    :visible="proxyConfigVisible" 
-    @update:visible="proxyConfigVisible = $event"
-    @config-change="handleProxyConfigChange"
-    ref="proxyConfigRef"
-  />
+  <ProxyConfigModal v-model:modelValue="proxyConfigVisible" @config-change="handleProxyConfigChange" :window-id="currentWindowId" ref="proxyConfigRef" />
 
 </template>
 

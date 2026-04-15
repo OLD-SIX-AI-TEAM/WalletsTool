@@ -11,6 +11,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { Notification, Modal } from '@arco-design/web-vue';
 import { debounce as customDebounce } from '@/utils/debounce.js';
+import { useWindowProxy } from '@/composables/useWindowProxy';
 import TitleBar from '@/components/TitleBar.vue';
 import TableSkeleton from '@/components/TableSkeleton.vue';
 import VirtualScrollerTable from '@/components/VirtualScrollerTable.vue';
@@ -123,12 +124,9 @@ let deleteTokenVisible = ref(false);
 const chainManageRef = ref(null);
 const rpcManageRef = ref(null);
 const tokenManageRef = ref(null);
-const walletImportRef = ref(null);
 const proxyConfigRef = ref(null);
-const proxyConfigVisible = ref(false);
-const proxyEnabled = ref(false);
-const proxyStatus = ref('未配置');
-const proxyCount = ref(0);
+const walletImportRef = ref(null);
+const { currentWindowId, getScopedWindowId, proxyConfigVisible, proxyEnabled, proxyStatus, proxyCount, proxyStatusColor, openProxyConfig, handleProxyConfigChange, initProxyStatus, cleanupProxyConfig, copyProxyConfigToWindow } = useWindowProxy('eth');
 const guideVisible = ref(false);
 const advancedFilterVisible = ref(false);
 const filterForm = reactive({
@@ -344,7 +342,6 @@ const transferPaused = ref(false);
 const pausedTransferData = ref(null);
 
 let timer = null;
-let currentWindowId = ref('');
 
 const uploadInputRef = ref(null);
 const formRef = ref(null);
@@ -1096,152 +1093,6 @@ function showRpcManage() {
 
 function showChainManage() { if (chainManageRef.value) chainManageRef.value.show(); }
 
-function openProxyConfig() { proxyConfigVisible.value = true; }
-
-function handleProxyConfigChange(config) {
-  proxyEnabled.value = config.enabled;
-  proxyCount.value = config.proxies ? config.proxies.length : 0;
-  proxyStatus.value = config.enabled && proxyCount.value > 0 ? '已配置' : '未配置';
-  
-  // 保存到 localStorage
-  const currentWindow = getCurrentWindow();
-  const storageKey = `proxy_config_${currentWindow.label}`;
-  localStorage.setItem(storageKey, JSON.stringify({
-    enabled: config.enabled,
-    proxies: config.proxies || []
-  }));
-}
-
-const proxyStatusColor = computed(() => {
-  switch (proxyStatus.value) {
-    case '已配置': return '#00b42a';
-    case '连接中': return '#ff7d00';
-    case '已连接': return '#00b42a';
-    case '连接失败': return '#f53f3f';
-    default: return '#86909c';
-  }
-});
-
-async function initProxyStatus() {
-  try {
-    const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
-    if (isTauri) {
-      // 获取或生成窗口ID
-      let windowId = currentWindowId.value;
-      if (!windowId || windowId.trim() === '') {
-        windowId = generateWindowId();
-        currentWindowId.value = windowId;
-      }
-      
-      // 检查是否有持久化的窗口ID
-      const currentWindow = await getCurrentWindow();
-      const storageKey = `proxy_window_id_${currentWindow.label}`;
-      const storedWindowId = localStorage.getItem(storageKey);
-      if (storedWindowId) {
-        windowId = storedWindowId;
-        currentWindowId.value = windowId;
-      } else {
-        localStorage.setItem(storageKey, windowId);
-      }
-      
-      // 设置窗口ID到后端
-      await invoke('set_proxy_window_id', { windowId });
-      
-      // 尝试从 localStorage 读取配置
-      const proxyStorageKey = `proxy_config_${currentWindow.label}`;
-      const storedConfig = localStorage.getItem(proxyStorageKey);
-      
-      let config;
-      if (storedConfig) {
-        try {
-          config = JSON.parse(storedConfig);
-          console.log('从 localStorage 加载代理配置:', config);
-        } catch (e) {
-          console.error('解析代理配置失败:', e);
-          config = await invoke('get_proxy_config_for_window', { windowId });
-        }
-      } else {
-        config = await invoke('get_proxy_config_for_window', { windowId });
-      }
-      
-      handleProxyConfigChange(config);
-      
-      console.log('initProxyStatus 完成:', {
-        windowId,
-        currentWindowId: currentWindowId.value,
-        enabled: config.enabled,
-        proxyCount: config.proxies?.length || 0
-      });
-    }
-  } catch (error) { console.error('初始化代理状态失败:', error); }
-}
-
-// 复制代理配置到新窗口
-async function copyProxyConfigToWindow(newWindowId, newWindowLabel, sourceWindowLabel) {
-  try {
-    const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
-    if (!isTauri) return;
-
-    console.log('copyProxyConfigToWindow 开始:', {
-      newWindowId,
-      newWindowLabel,
-      sourceWindowLabel,
-      currentWindowId: currentWindowId.value
-    });
-
-    // 从源窗口的 localStorage 读取代理配置
-    const storageKey = `proxy_config_${sourceWindowLabel}`;
-    const storedConfig = localStorage.getItem(storageKey);
-    
-    let configToCopy = { enabled: false, proxies: [] };
-    
-    if (storedConfig) {
-      try {
-        configToCopy = JSON.parse(storedConfig);
-        console.log('从源窗口 localStorage 读取到的配置:', configToCopy);
-      } catch (e) {
-        console.error('解析代理配置失败:', e);
-      }
-    }
-    
-    if (configToCopy.proxies && configToCopy.proxies.length > 0) {
-      console.log('代理配置有效，开始保存到新窗口');
-    } else {
-      console.log('代理配置为空或无效，配置将使用默认值');
-    }
-    
-    // 设置新窗口的窗口ID
-    await invoke('set_proxy_window_id', { windowId: newWindowId });
-    
-    // 复制配置到新窗口
-    await invoke('save_proxy_config_for_window', {
-      windowId: newWindowId,
-      proxies: configToCopy.proxies || [],
-      enabled: configToCopy.enabled
-    });
-    
-    // 同时保存到新窗口的 localStorage
-    const newStorageKey = `proxy_config_${newWindowLabel}`;
-    localStorage.setItem(newStorageKey, JSON.stringify({
-      enabled: configToCopy.enabled,
-      proxies: configToCopy.proxies || []
-    }));
-    
-    // 保存新窗口的窗口ID映射
-    const newWindowIdKey = `proxy_window_id_${newWindowLabel}`;
-    localStorage.setItem(newWindowIdKey, newWindowId);
-    
-    console.log(`已复制代理配置到新窗口 ${newWindowLabel}:`, {
-      windowId: newWindowId,
-      enabled: configToCopy.enabled,
-      proxyCount: configToCopy.proxies?.length || 0
-    });
-  } catch (error) {
-    console.error('复制代理配置到新窗口失败:', error);
-  }
-}
-
-// 生成唯一的窗口ID
 function generateWindowId() {
   const timestamp = Date.now().toString(36);
   const randomPart = Math.random().toString(36).substring(2, 9);
@@ -1258,30 +1109,17 @@ async function handleBeforeClose() {
   gasPriceCountdown.value = 0;
   currentGasPrice.value = 0;
 
+  await cleanupProxyConfig();
+
+  // customClose 模式下，由页面负责销毁窗口
   const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
   if (isTauri) {
     try {
       const currentWindow = await getCurrentWindow();
-      const windowLabel = currentWindow.label;
-      
-      // 发送停止信号给后端，终止所有正在进行的转账操作
-      await invoke('stop_transfer', { windowId: windowLabel });
-      console.log(`已发送停止转账信号给后端，窗口ID: ${windowLabel}`);
-      
-      // 清除前端localStorage
-      localStorage.removeItem(`proxy_config_${windowLabel}`);
-      localStorage.removeItem(`proxy_window_id_${windowLabel}`);
-      
-      // 清除后端文件缓存和内存缓存
-      await invoke('clear_proxy_config_for_window', { windowId: windowLabel });
-      
-      console.log(`已完全清除窗口 ${windowLabel} 的代理配置`);
-      
+      await invoke('stop_transfer', { windowId: currentWindow.label });
       await currentWindow.destroy();
-    } catch (error) {
-      console.error('清除代理配置失败:', error);
-      const currentWindow = getCurrentWindow();
-      await currentWindow.destroy();
+    } catch (e) {
+      console.error('销毁窗口失败:', e);
     }
   }
 }
@@ -1322,9 +1160,9 @@ onMounted(async () => {
   const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
   if (isTauri) {
     try {
-      const currentWindow = getCurrentWindow();
+      const currentWindow = await getCurrentWindow();
       windowTitle.value = (await currentWindow.title()) || '批量转账';
-      currentWindowId.value = currentWindow.label;
+      currentWindowId.value = getScopedWindowId(currentWindow.label);
       await initProxyStatus();
       // 检查钱包管理是否已初始化（只需检查是否设置过密码，不需要当前解锁）
       try { walletDbReady.value = await invoke('is_wallet_manager_initialized'); } catch (e) { walletDbReady.value = false; }
@@ -1853,7 +1691,7 @@ function handleSystemImportConfirm(payload) {
         </div>
       </template>
     </a-modal>
-<ProxyConfigModal v-model:modelValue="proxyConfigVisible" @config-change="handleProxyConfigChange" ref="proxyConfigRef" />
+<ProxyConfigModal v-model:modelValue="proxyConfigVisible" @config-change="handleProxyConfigChange" :window-id="currentWindowId" ref="proxyConfigRef" />
     <TransferGuide v-model:visible="guideVisible" />
     <div class="status-bar">
       <div class="status-bar-left">

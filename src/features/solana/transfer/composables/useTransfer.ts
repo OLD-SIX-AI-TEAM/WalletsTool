@@ -183,11 +183,6 @@ export function useTransfer(options = {}) {
 
     const isBase = currentCoin.value.coin_type === 'base';
     const balanceKey = isBase ? 'plat_balance' : 'coin_balance';
-    
-    // 检查是否有有效余额
-    if (item[balanceKey] !== '' && item[balanceKey] !== null && item[balanceKey] !== undefined) {
-        return;
-    }
 
     const address = item.address;
     if (!address) return;
@@ -204,12 +199,13 @@ export function useTransfer(options = {}) {
                  data.value[realIndex].plat_balance = bal;
              }
         } else {
+             // Solana 使用专用的余额查询命令
              const params = {
                  chain: chainValue.value,
                  coin_config: {
                      coin_type: currentCoin.value.coin_type,
                      contract_address: currentCoin.value.contract_address || null,
-                     abi: currentCoin.value.abi || null
+                     abi: null
                  },
                  items: [{
                      key: item.key,
@@ -217,23 +213,24 @@ export function useTransfer(options = {}) {
                      private_key: null,
                      plat_balance: null,
                      coin_balance: null,
-                     nonce: null,
                      exec_status: '0',
                      error_msg: null,
                      retry_flag: false
                  }],
-                 only_coin_config: true,
-                 thread_count: 1,
-                 window_id: windowId?.value || null,
+                 window_id: windowId?.value || 'default',
+                 query_id: `ensure_balance_${Date.now()}`,
              };
              
-             const result = await invoke('query_balances_simple', { params });
+             // 使用 Solana 专用的余额查询命令
+             const result = await invoke('sol_query_balances_with_updates', { params });
              if (result && result.success && result.items && result.items.length > 0) {
                  const resItem = result.items[0];
                  item.coin_balance = resItem.coin_balance;
+                 item.plat_balance = resItem.plat_balance;
                  const realIndex = data.value.findIndex(d => d.key === item.key);
                  if (realIndex !== -1) {
                      data.value[realIndex].coin_balance = resItem.coin_balance;
+                     data.value[realIndex].plat_balance = resItem.plat_balance;
                  }
              }
         }

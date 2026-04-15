@@ -92,6 +92,14 @@ invoke('check_wallet_recent_transfers', { ... })
 | Multi-thread | 1-90 threads | Wallet-grouped concurrency |
 | Fury mode | >90 threads | Fast submit → batch confirm |
 
+## PROXY CONFIGURATION
+
+- Proxy config is **ecosystem-scoped** to avoid sharing with Solana in the same window.
+- `windowId` format: `{label}_eth` (e.g. `transfer1_eth`).
+- Uses `useWindowProxy('eth')` composable (`src/composables/useWindowProxy.ts`) for all proxy state, init, and cleanup.
+- Backend (`proxy_manager.rs`) is the **single source of truth**; no localStorage caching for proxy config.
+- `ProxyConfigModal` receives `:window-id="currentWindowId"` so load/save are deterministic per window.
+
 ## ANTI-PATTERNS
 
 - Never pass `stopFlag` directly to backend

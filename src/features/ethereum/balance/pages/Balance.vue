@@ -15,6 +15,7 @@ import VirtualScrollerTable from '@/components/VirtualScrollerTable.vue'
 import { debounce } from '@/utils/debounce.js'
 import { WINDOW_CONFIG } from '@/utils/windowNames'
 import { exportWithDialog, openDirectory } from '@/utils/exportWithDialog'
+import { useWindowProxy } from '@/composables/useWindowProxy'
 
 // 懒加载非关键组件
 const ChainManagement = defineAsyncComponent(() => import('@/components/ChainManagement.vue'))
@@ -180,8 +181,6 @@ let deleteItemVisible = ref(false)
 let currentCoin = ref({})
 // 当前数据的key
 let currentItemKey = ref('')
-// 当前窗口ID
-let currentWindowId = ref('')
 // 链管理组件引用
 const chainManageRef = ref(null);
 // RPC管理组件引用
@@ -192,10 +191,7 @@ const tokenManageRef = ref(null);
 const proxyConfigRef = ref(null);
 // 文件上传输入框引用
 const uploadInputRef = ref(null);
-const proxyConfigVisible = ref(false);
-const proxyEnabled = ref(false);
-const proxyStatus = ref('未配置');
-const proxyCount = ref(0);
+const { currentWindowId, getScopedWindowId, proxyConfigVisible, proxyEnabled, proxyStatus, proxyCount, proxyStatusColor, openProxyConfig, handleProxyConfigChange, initProxyStatus, cleanupProxyConfig } = useWindowProxy('eth');
 // 高级筛选相关变量
 const advancedFilterVisible = ref(false);
 const filterForm = reactive({
@@ -475,17 +471,16 @@ onMounted(async () => {
   const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
   if (isTauri) {
     try {
-      const currentWindow = getCurrentWindow();
-      
+      const currentWindow = await getCurrentWindow();
+
       // 获取窗口标题
       const title = await currentWindow.title();
       if (title) {
         windowTitle.value = title;
       }
-      
-      // 获取当前窗口ID
-      currentWindowId.value = currentWindow.label;
-      console.log('当前窗口ID:', currentWindowId.value);
+
+      // 立即设置窗口ID（代理等业务需要）
+      currentWindowId.value = getScopedWindowId(currentWindow.label);
 
       // 检查钱包管理是否已初始化（只需检查是否设置过密码，不需要当前解锁）
       try { walletDbReady.value = await invoke('is_wallet_manager_initialized'); } catch (e) { walletDbReady.value = false; }
@@ -530,10 +525,10 @@ onMounted(async () => {
 
   // 页面加载完成后发送事件
   nextTick(() => {
-    setTimeout(() => {
+    setTimeout(async () => {
       const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
       if (isTauri) {
-        const currentWindow = getCurrentWindow();
+        const currentWindow = await getCurrentWindow();
         currentWindow.emit('page-loaded');
       }
     }, 50);
@@ -1488,94 +1483,6 @@ function handleTokenUpdated() {
   chainChange();
 }
 
-// 代理配置相关函数
-async function openProxyConfig() {
-  proxyConfigVisible.value = true;
-}
-
-// 监听代理配置变化
-function handleProxyConfigChange(config) {
-  proxyEnabled.value = config.enabled;
-  proxyCount.value = config.proxies ? config.proxies.length : 0;
-  
-  // 只有在启用代理且有代理可用时才设置为'已配置'
-  if (config.enabled && proxyCount.value > 0) {
-    proxyStatus.value = '已配置';
-  } else {
-    proxyStatus.value = '未配置';
-  }
-  
-  // 保存到 localStorage (复用Transfer的逻辑)
-  const currentWindow = getCurrentWindow();
-  const storageKey = `proxy_config_${currentWindow.label}`;
-  localStorage.setItem(storageKey, JSON.stringify({
-    enabled: config.enabled,
-    proxies: config.proxies || []
-  }));
-}
-
-// 获取代理状态颜色
-const proxyStatusColor = computed(() => {
-  switch (proxyStatus.value) {
-    case '已配置':
-      return '#00b42a';
-    case '连接中':
-      return '#ff7d00';
-    case '已连接':
-      return '#00b42a';
-    case '连接失败':
-      return '#f53f3f';
-    default:
-      return '#86909c';
-  }
-});
-
-// 初始化代理状态
-async function initProxyStatus() {
-  try {
-    const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
-    if (isTauri) {
-      let windowId = currentWindowId.value;
-      if (!windowId || windowId.trim() === '') {
-        windowId = generateWindowId();
-        currentWindowId.value = windowId;
-      }
-      
-      // 检查是否有持久化的窗口ID
-      const currentWindow = await getCurrentWindow();
-      const storageKey = `proxy_window_id_${currentWindow.label}`;
-      const storedWindowId = localStorage.getItem(storageKey);
-      if (storedWindowId) {
-        windowId = storedWindowId;
-        currentWindowId.value = windowId;
-      } else {
-        localStorage.setItem(storageKey, windowId);
-      }
-
-      await invoke('set_proxy_window_id', { windowId });
-      
-      // 尝试从 localStorage 读取配置
-      const proxyStorageKey = `proxy_config_${currentWindow.label}`;
-      const storedConfig = localStorage.getItem(proxyStorageKey);
-      
-      let config;
-      if (storedConfig) {
-        try {
-          config = JSON.parse(storedConfig);
-        } catch (e) {
-          config = await invoke('get_proxy_config_for_window', { windowId });
-        }
-      } else {
-        config = await invoke('get_proxy_config_for_window', { windowId });
-      }
-
-      handleProxyConfigChange(config);
-    }
-  } catch (error) {
-    console.error('初始化代理状态失败:', error);
-  }
-}
-
 // 处理TitleBar的before-close事件
 async function handleBeforeClose() {
   try {
@@ -1587,20 +1494,7 @@ async function handleBeforeClose() {
       console.log('已停止余额查询操作');
     }
 
-    const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__;
-    if (isTauri) {
-      try {
-        const currentWindow = await getCurrentWindow();
-        const windowLabel = currentWindow.label;
-        localStorage.removeItem(`proxy_config_${windowLabel}`);
-        localStorage.removeItem(`proxy_window_id_${windowLabel}`);
-        console.log(`已清除窗口 ${windowLabel} 的代理配置缓存`);
-        
-        await invoke('clear_proxy_config_for_window', { windowId: windowLabel });
-      } catch (error) {
-        console.error('清除代理配置缓存失败:', error);
-      }
-    }
+    await cleanupProxyConfig();
 
     console.log('TitleBar窗口关闭清理完成，所有后台操作已停止');
   } catch (error) {
@@ -2014,13 +1908,7 @@ async function handleBeforeClose() {
   <TokenManagement ref="tokenManageRef" :chain-value="chainValue" :chain-options="chainOptions" @token-updated="handleTokenUpdated" />
   
   <!-- 代理配置弹窗 -->
-  <ProxyConfigModal 
-    v-if="proxyConfigVisible" 
-    :visible="proxyConfigVisible" 
-    @update:visible="proxyConfigVisible = $event"
-    @config-change="handleProxyConfigChange"
-    ref="proxyConfigRef"
-  />
+  <ProxyConfigModal v-model:modelValue="proxyConfigVisible" @config-change="handleProxyConfigChange" :window-id="currentWindowId" ref="proxyConfigRef" />
 
 </template>
 
