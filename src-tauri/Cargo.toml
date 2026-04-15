@@ -1,6 +1,6 @@
 [package]
 name = "WalletsTool"
-version = "0.5.1"
+version = "0.5.2"
 description = "web3 链上钱包管理工具集，基于 Vue3 Tauri 等技术"
 authors = ["renmk"]
 license = ""
