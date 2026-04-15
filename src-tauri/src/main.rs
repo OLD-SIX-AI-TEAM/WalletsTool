@@ -8,6 +8,8 @@ mod plugins;
 mod database;
 
 use tauri::{WindowEvent, Manager, AppHandle, Runtime, Emitter, tray::TrayIconBuilder, menu::{MenuBuilder, MenuItemBuilder}};
+use wallets_tool::airdrop::scheduler::TaskScheduler;
+use std::sync::Arc;
 
 
 // Tauri 命令：关闭所有子窗口
@@ -63,6 +65,111 @@ async fn show_main_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
         // 这样可以确保窗口弹出到最上层而不会一直保持在最上层
         window.set_always_on_top(true).map_err(|e| e.to_string())?;
         window.set_always_on_top(false).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+// Tauri 命令：根据dock items数量自动设置主窗口大小和位置
+#[tauri::command]
+async fn set_main_window_size_for_dock<R: Runtime>(app: AppHandle<R>, item_count: u32) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        // 计算dock宽度 - 基于前端实际样式
+        // dock-icon: 40px, dock-item padding: 4px, 所以每个item占用: 40 + 4*2 = 48px
+        let item_width = 48u32;
+        // dock item之间的gap: 6px (dock的gap属性)
+        let gap = 6u32;
+        // 分隔线: 1px宽 + margin 0 6px = 13px实际占用
+        let divider_width = 13u32;
+        // dock左右padding: 16px * 2 = 32px
+        let padding = 32u32;
+        // 分隔线数量
+        let divider_count = 2u32;
+        // 最大宽度限制
+        let max_width = 1360u32;
+
+        // dock子元素: item_count个功能items + 2个固定items(设置和退出) + 2个dividers
+        let total_items = item_count + 2;
+        // gap数量 = 子元素总数 - 1
+        let total_children = total_items + divider_count;
+        let gaps_count = if total_children > 1 { total_children - 1 } else { 0 };
+        
+        // 计算总宽度
+        let calculated_width = (total_items * item_width)              // 所有items
+            + (gaps_count * gap)                                        // 所有gaps
+            + (divider_count * divider_width)                           // 分隔线
+            + padding;                                                  // 左右padding
+
+        // 应用最大宽度限制
+        let total_width = calculated_width.min(max_width);
+
+        // 高度固定为dock高度 + 边距
+        // 上padding 20px + 下padding 12px + dock-item上padding 8px + 图标40px + label约16px
+        let total_height = 96u32;
+
+        println!("[set_main_window_size_for_dock] item_count={}, total_items={}, gaps={}, dividers={}, calculated_width={}, final_width={}",
+            item_count, total_items, gaps_count, divider_count, calculated_width, total_width);
+
+        // 设置窗口大小
+        window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: total_width as f64,
+            height: total_height as f64,
+        })).map_err(|e| e.to_string())?;
+
+        // 设置窗口位置到屏幕底部任务栏上方
+        // 获取主显示器信息
+        if let Ok(Some(monitor)) = window.primary_monitor() {
+            let monitor_size = monitor.size();
+            let monitor_position = monitor.position();
+
+            // 计算窗口位置：水平居中，垂直位于屏幕底部上方
+            let window_x = monitor_position.x as f64 + (monitor_size.width as f64 - total_width as f64) / 2.0;
+            // 距离屏幕底部60px（留出任务栏空间，避免重叠）
+            let taskbar_offset = 60u32;
+            let window_y = monitor_position.y as f64 + monitor_size.height as f64 - total_height as f64 - taskbar_offset as f64;
+
+            println!("[set_main_window_position] monitor_size={}x{}, position=({}, {}), window_position=({}, {})",
+                monitor_size.width, monitor_size.height,
+                monitor_position.x, monitor_position.y,
+                window_x, window_y);
+
+            window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+                x: window_x,
+                y: window_y,
+            })).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+// Tauri 命令：设置主窗口透明度
+#[tauri::command]
+async fn set_main_window_opacity<R: Runtime>(_app: AppHandle<R>, _opacity: f64) -> Result<(), String> {
+    // TODO: Tauri v2 中透明度 API 发生了变化，需要重新实现
+    // if let Some(window) = app.get_webview_window("main") {
+    //     let clamped_opacity = opacity.clamp(0.1, 1.0);
+    //     window.set_opacity(clamped_opacity).map_err(|e| e.to_string())?;
+    // }
+    Ok(())
+}
+
+// Tauri 命令：获取主窗口当前透明度
+#[tauri::command]
+async fn get_main_window_opacity<R: Runtime>(_app: AppHandle<R>) -> Result<f64, String> {
+    // TODO: Tauri v2 中透明度 API 发生了变化，需要重新实现
+    // if let Some(window) = app.get_webview_window("main") {
+    //     match window.opacity() {
+    //         Ok(opacity) => return Ok(opacity),
+    //         Err(_) => return Ok(1.0),
+    //     }
+    // }
+    Ok(1.0)
+}
+
+// Tauri 命令：设置主窗口始终置顶
+#[tauri::command]
+async fn set_main_window_always_on_top<R: Runtime>(app: AppHandle<R>, always_on_top: bool) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_always_on_top(always_on_top).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -140,23 +247,125 @@ async fn main() {
     // 启动安全保护
     wallets_tool::security::enable_protection();
 
-    // 初始化数据库
-    if let Err(err) = database::init_database().await {
-        eprintln!("数据库初始化失败: {err:?}");
+    // 初始化公开数据库（链配置、RPC节点等）
+    if let Err(err) = database::init_public_database().await {
+        eprintln!("公开数据库初始化失败: {err:?}");
         return;
     }
+
+    // 使用公开数据库连接池
+    let sqlite_pool = database::DualDatabaseManager::public_pool();
+    println!("Initializing WalletManagerService...");
+    let wallet_manager_service =
+        wallets_tool::wallet_manager::service::WalletManagerService::new(sqlite_pool.clone());
     
-    // 创建数据库服务
-    // Force rebuild: ecosystem field added
-    let db_manager = database::get_database_manager();
-    let chain_service = database::chain_service::ChainService::new(db_manager.get_pool());
+    let chain_service = database::chain_service::ChainService::new();
+    
+    // Initialize task scheduler for browser automation
+    let task_scheduler = Arc::new(TaskScheduler::new(sqlite_pool.clone()));
+    let scheduler_for_setup = task_scheduler.clone();
+    
+    let updater_pubkey = option_env!("WALLETSTOOL_UPDATER_PUBKEY").unwrap_or("").trim();
+    let updater_plugin = if updater_pubkey.is_empty() {
+        tauri_plugin_updater::Builder::new().build()
+    } else {
+        tauri_plugin_updater::Builder::new()
+            .pubkey(updater_pubkey)
+            .build()
+    };
     
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(updater_plugin)
+        .manage(sqlite_pool)
+        .manage(wallet_manager_service)
         .manage(chain_service)
-        .setup(|app| {
+        .manage(task_scheduler)
+        .setup(move |app| {
+            // Start the task scheduler
+            let scheduler = scheduler_for_setup;
+            tauri::async_runtime::spawn(async move {
+                scheduler.start().await;
+            });
+
             // 主窗口直接显示
+            // 在后端直接设置主窗口初始大小和位置，避免等待前端加载
+            // dock items 数量：6个功能按钮
+            let dock_item_count = 6u32;
+            
+            if let Some(window) = app.get_webview_window("main") {
+                // 计算dock宽度 - 与 set_main_window_size_for_dock 函数保持一致
+                let item_width = 48u32;
+                let gap = 6u32;
+                let divider_width = 13u32;
+                let padding = 32u32;
+                let divider_count = 2u32;
+                let max_width = 1360u32;
+
+                // dock子元素: dock_item_count个功能items + 2个固定items(设置和退出) + 2个dividers
+                let total_items = dock_item_count + 2;
+                let total_children = total_items + divider_count;
+                let gaps_count = if total_children > 1 { total_children - 1 } else { 0 };
+                
+                let calculated_width = (total_items * item_width)
+                    + (gaps_count * gap)
+                    + (divider_count * divider_width)
+                    + padding;
+
+                let total_width = calculated_width.min(max_width);
+                let total_height = 96u32;
+
+                println!("[setup] Setting initial window size: {}x{}", total_width, total_height);
+
+                // 设置窗口大小
+                if let Err(e) = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                    width: total_width as f64,
+                    height: total_height as f64,
+                })) {
+                    eprintln!("设置主窗口初始大小失败: {e}");
+                }
+
+                // 设置窗口位置到屏幕底部
+                if let Ok(Some(monitor)) = window.primary_monitor() {
+                    let monitor_size = monitor.size();
+                    let monitor_position = monitor.position();
+
+                    let window_x = monitor_position.x as f64 + (monitor_size.width as f64 - total_width as f64) / 2.0;
+                    // 距离屏幕底部60px（留出任务栏空间，避免重叠）
+                    let taskbar_offset = 60u32;
+                    let window_y = monitor_position.y as f64 + monitor_size.height as f64 - total_height as f64 - taskbar_offset as f64;
+
+                    println!("[setup] Setting initial window position: ({}, {})", window_x, window_y);
+
+                    if let Err(e) = window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
+                        x: window_x,
+                        y: window_y,
+                    })) {
+                        eprintln!("设置主窗口初始位置失败: {e}");
+                    }
+                }
+
+                // 先设置好位置和大小，最后再显示窗口，避免出现位置不对的透明轮廓
+                if let Err(e) = window.show() {
+                    eprintln!("显示主窗口失败: {e}");
+                } else {
+                    println!("[setup] Window shown successfully at correct position");
+                }
+
+                // 确保窗口获得焦点
+                if let Err(e) = window.set_focus() {
+                    eprintln!("设置主窗口焦点失败: {e}");
+                }
+
+                // 禁用窗口阴影，避免在圆角处显示窗口边框
+                #[cfg(target_os = "windows")]
+                if let Err(e) = window.set_shadow(false) {
+                    eprintln!("禁用主窗口阴影失败: {e}");
+                }
+            }
 
             // 构建托盘菜单
             let show_main = MenuItemBuilder::new("显示主窗口").id("show_main").build(app)?;
@@ -312,6 +521,10 @@ async fn main() {
             wallets_tool::utils::save_file,
             wallets_tool::utils::get_temp_dir,
             wallets_tool::utils::open_file_directory,
+            wallets_tool::update::check_github_release_update,
+            wallets_tool::update::check_update,
+            wallets_tool::update::download_and_install_update,
+            wallets_tool::update::download_update_only,
             // fs extra functions
             plugins::fs_extra::exists,
             plugins::fs_extra::open_file,
@@ -325,11 +538,26 @@ async fn main() {
             get_all_child_windows,
             force_close_main_window,
             show_main_window,
+            set_main_window_size_for_dock,
+            set_main_window_opacity,
+            get_main_window_opacity,
+            set_main_window_always_on_top,
             open_function_window,
             // database hot reload functions
             database::reload_database,
             database::check_database_schema,
             database::export_database_to_init_sql,
+            database::is_wallet_db_ready,
+            // dual database commands
+            database::commands::get_dual_database_status,
+            database::commands::init_public_db,
+            database::commands::init_secure_db,
+            database::commands::unlock_secure_db,
+            database::commands::lock_secure_db,
+            database::commands::is_secure_db_initialized,
+            database::commands::is_public_db_ready,
+            database::commands::is_secure_db_unlocked,
+            database::commands::is_wallet_manager_ready,
             // transfer functions
             wallets_tool::transfer::base_coin_transfer,
             wallets_tool::transfer::base_coin_transfer_fast,
@@ -374,6 +602,94 @@ async fn main() {
             wallets_tool::ecosystems::ethereum::proxy_commands::get_proxy_stats,
             wallets_tool::ecosystems::ethereum::proxy_commands::get_proxy_stats_for_window,
             wallets_tool::ecosystems::ethereum::proxy_commands::clear_proxy_config_for_window,
+            // wallet manager commands
+            wallets_tool::wallet_manager::commands::init_wallet_manager_tables,
+            wallets_tool::wallet_manager::commands::is_wallet_manager_initialized,
+            wallets_tool::wallet_manager::commands::init_encrypted_db,
+            wallets_tool::wallet_manager::commands::unlock_encrypted_db,
+            wallets_tool::wallet_manager::commands::is_password_set,
+            wallets_tool::wallet_manager::commands::init_password,
+            wallets_tool::wallet_manager::commands::verify_password,
+            wallets_tool::wallet_manager::commands::get_wallet_transport_public_key,
+            wallets_tool::wallet_manager::commands::register_wallet_transport_key,
+            wallets_tool::wallet_manager::commands::change_password,
+            wallets_tool::wallet_manager::commands::create_group,
+            wallets_tool::wallet_manager::commands::get_groups,
+            wallets_tool::wallet_manager::commands::update_group,
+            wallets_tool::wallet_manager::commands::delete_group,
+            wallets_tool::wallet_manager::commands::create_wallet,
+            wallets_tool::wallet_manager::commands::create_wallets,
+            wallets_tool::wallet_manager::commands::get_wallets,
+            wallets_tool::wallet_manager::commands::get_wallet_secrets,
+            wallets_tool::wallet_manager::commands::export_wallets,
+            wallets_tool::wallet_manager::commands::update_wallet,
+            wallets_tool::wallet_manager::commands::delete_wallet,
+            // watch address commands
+            wallets_tool::wallet_manager::commands::get_watch_addresses,
+            wallets_tool::wallet_manager::commands::create_watch_address,
+            wallets_tool::wallet_manager::commands::create_watch_addresses,
+            wallets_tool::wallet_manager::commands::update_watch_address,
+            wallets_tool::wallet_manager::commands::delete_watch_address,
+            wallets_tool::wallet_manager::commands::export_watch_addresses,
+            // encrypted cloud backup commands
+            wallets_tool::wallet_manager::commands::create_encrypted_backup,
+            wallets_tool::wallet_manager::commands::restore_encrypted_backup,
+            wallets_tool::wallet_manager::commands::save_backup_to_file,
+            wallets_tool::wallet_manager::commands::load_backup_from_file,
+            // browser automation commands
+            wallets_tool::airdrop::commands::init_browser_automation_tables,
+            wallets_tool::airdrop::commands::get_airdrop_wallets,
+            wallets_tool::airdrop::commands::create_airdrop_wallet,
+            wallets_tool::airdrop::commands::update_airdrop_wallet,
+            wallets_tool::airdrop::commands::delete_airdrop_wallet,
+            wallets_tool::airdrop::commands::import_airdrop_wallets,
+            wallets_tool::airdrop::commands::get_wallet_private_key,
+            wallets_tool::airdrop::commands::get_browser_profiles,
+            wallets_tool::airdrop::commands::create_browser_profile,
+            wallets_tool::airdrop::commands::update_browser_profile,
+            wallets_tool::airdrop::commands::delete_browser_profile,
+            wallets_tool::airdrop::commands::batch_generate_profiles,
+            wallets_tool::airdrop::commands::get_automation_scripts,
+            wallets_tool::airdrop::commands::create_automation_script,
+            wallets_tool::airdrop::commands::update_automation_script,
+            wallets_tool::airdrop::commands::delete_automation_script,
+            wallets_tool::airdrop::commands::get_automation_tasks,
+            wallets_tool::airdrop::commands::create_automation_task,
+            wallets_tool::airdrop::commands::update_automation_task,
+            wallets_tool::airdrop::commands::delete_automation_task,
+            wallets_tool::airdrop::commands::toggle_task_status,
+            wallets_tool::airdrop::commands::get_task_executions,
+            wallets_tool::airdrop::commands::delete_task_execution,
+            wallets_tool::airdrop::commands::get_task_execution_stats,
+            wallets_tool::airdrop::commands::run_task_now,
+            // execution commands
+            wallets_tool::airdrop::commands::create_execution,
+            wallets_tool::airdrop::commands::start_execution,
+            wallets_tool::airdrop::commands::cancel_execution,
+            wallets_tool::airdrop::commands::get_execution,
+            wallets_tool::airdrop::commands::simulate_execution,
+            // browser extension commands
+            wallets_tool::airdrop::commands::get_browser_extensions,
+            wallets_tool::airdrop::commands::create_browser_extension,
+            wallets_tool::airdrop::commands::update_browser_extension,
+            wallets_tool::airdrop::commands::delete_browser_extension,
+            wallets_tool::airdrop::commands::toggle_browser_extension,
+            wallets_tool::airdrop::commands::scan_extension_folder,
+            wallets_tool::airdrop::commands::import_extension_from_folder,
+            // playwright execution commands
+            wallets_tool::playwright::execute_playwright_script,
+            // playwright executor commands (optimized concurrent execution)
+            wallets_tool::playwright::executor::playwright_create_session,
+            wallets_tool::playwright::executor::playwright_start_execution,
+            wallets_tool::playwright::executor::playwright_get_execution_status,
+            wallets_tool::playwright::executor::playwright_cancel_execution,
+            wallets_tool::playwright::executor::playwright_cleanup_session,
+            // playwright recorder commands
+            wallets_tool::playwright::recorder::playwright_start_recording,
+            wallets_tool::playwright::recorder::playwright_stop_recording,
+            wallets_tool::playwright::recorder::playwright_get_recording_session,
+            wallets_tool::playwright::recorder::check_cli_tools,
+            wallets_tool::playwright::recorder::install_node_environment,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

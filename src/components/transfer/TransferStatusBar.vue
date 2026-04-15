@@ -355,10 +355,6 @@ function showChainManage() {
           <Icon icon="mdi:cog" style="font-size: 15px" />
         </div>
         <template #content>
-          <a-doption @click="toggleChainSelector">
-            <template #icon><Icon icon="mdi:swap-horizontal" /></template>
-            重新选择区块链
-          </a-doption>
           <a-doption @click="showTokenManage" :disabled="!chainValue">
             <template #icon><Icon icon="mdi:coin" /></template>
             代币管理
@@ -385,6 +381,12 @@ function showChainManage() {
 </template>
 
 <style scoped>
+:deep(.arco-dropdown) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown-list) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown ::-webkit-scrollbar) { display: none !important; width: 0 !important; height: 0 !important; }
+:deep(.arco-trigger-content) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-trigger-popup) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown-wrapper) { overflow: visible !important; max-height: none !important; }
 .status-bar {
   position: fixed;
   bottom: 0;

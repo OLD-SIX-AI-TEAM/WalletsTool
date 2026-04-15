@@ -5,13 +5,13 @@ use chrono::Utc;
 use rand::prelude::*;
 
 /// RPC服务
-pub struct RpcService<'a> {
-    pool: &'a SqlitePool,
+pub struct RpcService {
+    pool: SqlitePool,
 }
 
-impl<'a> RpcService<'a> {
-    pub fn new(pool: &'a SqlitePool) -> Self {
-        Self { pool }
+impl RpcService {
+    pub fn new(pool: &SqlitePool) -> Self {
+        Self { pool: pool.clone() }
     }
 
     /// 为指定链获取最佳RPC URL（按优先级和成功率）
@@ -28,7 +28,7 @@ impl<'a> RpcService<'a> {
             "#
         )
         .bind(chain_key)
-        .fetch_optional(self.pool)
+        .fetch_optional(&self.pool)
         .await?
         .ok_or_else(|| anyhow::anyhow!("没有可用的RPC提供商: {chain_key}"))?;
 
@@ -47,7 +47,7 @@ impl<'a> RpcService<'a> {
             "#
         )
         .bind(chain_key)
-        .fetch_all(self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         if rows.is_empty() {
@@ -76,7 +76,7 @@ impl<'a> RpcService<'a> {
             "#
         )
         .bind(chain_key)
-        .fetch_all(self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         let rpc_urls: Vec<String> = rows.into_iter().map(|row| {
@@ -94,7 +94,7 @@ impl<'a> RpcService<'a> {
             "SELECT id FROM chains WHERE chain_key = ? AND is_active = TRUE"
         )
         .bind(&request.chain_key)
-        .fetch_optional(self.pool)
+        .fetch_optional(&self.pool)
         .await?
         .ok_or_else(|| anyhow::anyhow!("链不存在: {}", request.chain_key))?;
 
@@ -114,7 +114,7 @@ impl<'a> RpcService<'a> {
         .bind(request.priority)
         .bind(now)
         .bind(now)
-        .fetch_one(self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
         Ok(rpc_id)
@@ -144,7 +144,7 @@ impl<'a> RpcService<'a> {
         .bind(response_time_ms)
         .bind(now)
         .bind(rpc_url)
-        .execute(self.pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
@@ -166,7 +166,7 @@ impl<'a> RpcService<'a> {
         )
         .bind(now)
         .bind(rpc_url)
-        .execute(self.pool)
+        .execute(&self.pool)
         .await?;
 
         // 如果失败次数过多（比如超过10次），暂时禁用该RPC
@@ -180,7 +180,7 @@ impl<'a> RpcService<'a> {
         )
         .bind(now)
         .bind(rpc_url)
-        .execute(self.pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
@@ -202,7 +202,7 @@ impl<'a> RpcService<'a> {
             "#
         )
         .bind(now)
-        .execute(self.pool)
+        .execute(&self.pool)
         .await?;
 
         Ok(())
@@ -222,7 +222,7 @@ impl<'a> RpcService<'a> {
             "#
         )
         .bind(chain_key)
-        .fetch_all(self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
         Ok(stats)

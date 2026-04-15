@@ -4,6 +4,8 @@ import WalletManager from '../components/WalletManager.vue';
 import BrowserFarm from '../components/BrowserFarm.vue';
 import ScriptEditor from '../components/ScriptEditor.vue';
 import ExecutionPanel from '../components/ExecutionPanel.vue';
+import TaskManager from '../components/TaskManager.vue';
+import TaskMonitor from '../components/TaskMonitor.vue';
 
 const activeTab = ref('1');
 </script>
@@ -27,7 +29,17 @@ const activeTab = ref('1');
             <ScriptEditor />
           </div>
         </a-tab-pane>
-        <a-tab-pane key="4" title="Execution Panel">
+        <a-tab-pane key="4" title="Task Manager">
+          <div class="tab-content">
+            <TaskManager />
+          </div>
+        </a-tab-pane>
+        <a-tab-pane key="5" title="Task Monitor">
+          <div class="tab-content">
+            <TaskMonitor />
+          </div>
+        </a-tab-pane>
+        <a-tab-pane key="6" title="Execution Panel">
           <div class="tab-content">
             <ExecutionPanel />
           </div>

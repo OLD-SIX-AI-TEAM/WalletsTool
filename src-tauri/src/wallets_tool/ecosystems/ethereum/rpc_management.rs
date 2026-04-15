@@ -34,7 +34,7 @@ pub struct RpcTestResult {
 #[tauri::command]
 pub async fn get_rpc_providers(
     chain_key: String,
-    chain_service: State<'_, ChainService<'_>>,
+    chain_service: State<'_, ChainService>,
 ) -> Result<Vec<RpcProviderInfo>, String> {
     let providers = chain_service.get_rpc_providers_by_chain(&chain_key).await
         .map_err(|e| format!("获取 RPC 提供商失败: {e}"))?;
@@ -59,7 +59,7 @@ pub async fn add_rpc_provider(
     chain_key: String,
     rpc_url: String,
     priority: i32,
-    chain_service: State<'_, ChainService<'_>>,
+    chain_service: State<'_, ChainService>,
 ) -> Result<RpcProviderInfo, String> {
     let request = CreateRpcProviderRequest {
         chain_key: chain_key.clone(),
@@ -87,7 +87,7 @@ pub async fn add_rpc_provider(
 pub async fn update_rpc_provider(
     id: i64,
     request: UpdateRpcProviderRequest,
-    chain_service: State<'_, ChainService<'_>>,
+    chain_service: State<'_, ChainService>,
 ) -> Result<RpcProviderInfo, String> {
     let provider = chain_service.update_rpc_provider(id, &request.rpc_url, request.is_active, request.priority).await
         .map_err(|e| format!("更新 RPC 提供商失败: {e}"))?;
@@ -108,7 +108,7 @@ pub async fn update_rpc_provider(
 #[tauri::command]
 pub async fn delete_rpc_provider(
     id: i64,
-    chain_service: State<'_, ChainService<'_>>,
+    chain_service: State<'_, ChainService>,
 ) -> Result<(), String> {
     chain_service.delete_rpc_provider(id).await
         .map_err(|e| format!("删除 RPC 提供商失败: {e}"))?;

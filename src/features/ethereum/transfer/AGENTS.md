@@ -45,6 +45,14 @@ Batch transfer composables for Ethereum (native + ERC-20). Largest frontend feat
 - **Notifications:** `@arco-design/web-vue` Notification component
 - **Tauri invoke:** All backend calls via `@tauri-apps/api/core`
 
+## IMPORTING WALLETS
+
+Transfer supports three import sources:
+
+- **Manual input:** `src/components/WalletImportModal.vue` → emits `{ privateKeys, addresses }` and `Transfer.vue` converts private keys to from-address.
+- **File import:** `composables/useDataOperations.ts` reads CSV/XLSX and appends rows into `data.value`.
+- **System import:** `src/components/WalletSystemImportModal.vue` selects wallets from wallet manager (`get_wallets` / `get_watch_addresses`). For transfer, it requests secrets via `get_wallet_secrets` (password required) and only imports wallets that have private keys.
+
 ## COMPOSABLES
 
 **useTransfer.ts (main):**

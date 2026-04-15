@@ -33,6 +33,12 @@
     "shell:allow-execute",
     "shell:allow-spawn",
     "dialog:allow-save",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "process:default",
+    "updater:default",
+    "fs:allow-write-text-file",
+    "fs:allow-write-file",
+    "fs:allow-read-text-file",
+    "fs:allow-read-file"
   ]
 }

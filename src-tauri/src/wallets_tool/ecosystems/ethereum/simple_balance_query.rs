@@ -11,7 +11,7 @@ use tokio::time::{sleep, Duration};
 use tauri::Emitter;
 use rand;
 use alloy::signers::local::PrivateKeySigner;
-use crate::database::{get_database_manager, rpc_service::RpcService, chain_service::ChainService};
+use crate::database::{get_database_pool, rpc_service::RpcService, chain_service::ChainService};
 
 // 基于窗口ID的停止标志映射
 static STOP_FLAGS: LazyLock<Mutex<HashMap<String, AtomicBool>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -136,8 +136,8 @@ impl SimpleBalanceQueryService {
 
     // 从数据库获取RPC URL
     async fn get_rpc_url(&self, chain: &str) -> Result<String> {
-        let db_manager = get_database_manager();
-        let rpc_service = RpcService::new(db_manager.get_pool());
+        let pool = get_database_pool();
+        let rpc_service = RpcService::new(&pool);
         
         rpc_service.get_random_rpc_url(chain).await
     }
@@ -288,8 +288,7 @@ impl SimpleBalanceQueryService {
         
         // 首先尝试从数据库获取代币的 decimals 配置
         let decimals = {
-            let pool = get_database_manager().get_pool();
-            let chain_service = ChainService::new(pool);
+            let chain_service = ChainService::new();
             match chain_service.get_token_decimals_by_contract(chain, contract_address).await {
                 Ok(Some(db_decimals)) => {
                     println!("[DEBUG] 从数据库获取到代币decimals - 链: {chain}, 合约: {contract_address}, decimals: {db_decimals}");

@@ -27,7 +27,7 @@ const columns = [
   { title: '平台币余额', align: 'center', width: 120, dataIndex: 'plat_balance' },
   { title: '变化', align: 'center', width: 120, dataIndex: 'change_desc', ellipsis: true, tooltip: true },
   { title: '上次变化时间', align: 'center', width: 160, dataIndex: 'last_change_at' },
-  { title: '错误信息', align: 'center', dataIndex: 'error_msg', ellipsis: true, tooltip: true },
+  { title: '错误信息', align: 'center', dataIndex: 'error_msg', width: 120, ellipsis: true, tooltip: true },
   { title: '操作', align: 'center', width: 70, slotName: 'optional' },
 ]
 
@@ -406,7 +406,7 @@ const statistics = computed(() => {
 </template>
 
 <style scoped>
-.container { padding: 10px; height: calc(100vh - 30px); display: flex; flex-direction: column; overflow: hidden; }
+.container { padding: 10px; height: calc(100vh - 30px); display: flex; flex-direction: column; overflow: hidden; background: var(--bg-color, rgb(42, 42, 43)); }
 .toolBar { margin-top: 45px; }
 .mainTable { margin-top: 10px; height: 100%; display: flex; flex-direction: column; }
 </style>

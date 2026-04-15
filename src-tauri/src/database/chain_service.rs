@@ -1,28 +1,24 @@
 use anyhow::Result;
-use sqlx::{SqlitePool, Row};
-use crate::database::models::*;
+use sqlx::Row;
+use crate::database::{models::*, get_database_pool};
 use chrono::Utc;
 
-/// 链服务
-pub struct ChainService<'a> {
-    pool: &'a SqlitePool,
-}
+/// 链服务（动态获取数据库连接池，避免 pool 关闭后引用失效）
+#[derive(Clone)]
+pub struct ChainService;
 
-impl<'a> ChainService<'a> {
-    pub fn new(pool: &'a SqlitePool) -> Self {
-        Self { pool }
-    }
-
-    /// 获取数据库连接池的引用
-    pub fn get_pool(&self) -> &SqlitePool {
-        self.pool
+impl ChainService {
+    /// 创建链服务实例
+    pub fn new() -> Self {
+        Self
     }
 
     /// 获取所有活跃链的配置信息
     pub async fn get_all_chains(&self) -> Result<Vec<ChainInfo>> {
+        let pool = get_database_pool();
         let chains = sqlx::query_as::<_, Chain>(
             "SELECT * FROM chains WHERE is_active = TRUE ORDER BY chain_name"
-        ).fetch_all(self.pool).await?;
+        ).fetch_all(&pool).await?;
 
         let mut chain_infos = Vec::new();
         for chain in chains {
@@ -49,11 +45,12 @@ impl<'a> ChainService<'a> {
 
     /// 根据chain_key获取链信息
     pub async fn get_chain_by_key(&self, chain_key: &str) -> Result<Option<Chain>> {
+        let pool = get_database_pool();
         let chain = sqlx::query_as::<_, Chain>(
             "SELECT * FROM chains WHERE chain_key = ? AND is_active = TRUE"
         )
         .bind(chain_key)
-        .fetch_optional(self.pool)
+        .fetch_optional(&pool)
         .await?;
 
         Ok(chain)
@@ -61,11 +58,12 @@ impl<'a> ChainService<'a> {
 
     /// 获取链的RPC URLs
     pub async fn get_chain_rpc_urls(&self, chain_id: i64) -> Result<Vec<String>> {
+        let pool = get_database_pool();
         let rows = sqlx::query(
             "SELECT rpc_url FROM rpc_providers WHERE chain_id = ? AND is_active = TRUE ORDER BY priority ASC"
         )
         .bind(chain_id)
-        .fetch_all(self.pool)
+        .fetch_all(&pool)
         .await?;
 
         let rpc_urls: Vec<String> = rows.into_iter().map(|row| {
@@ -75,29 +73,28 @@ impl<'a> ChainService<'a> {
         Ok(rpc_urls)
     }
 
-
-
     /// 添加新链
     pub async fn add_chain(&self, request: CreateChainRequest) -> Result<i64> {
         println!("正在添加新链: key={}, name={}, ecosystem={}", request.chain_key, request.chain_name, request.ecosystem);
-        
+        let pool = get_database_pool();
+
         // 检查链标识符是否已存在
         let exists = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM chains WHERE chain_key = ?"
         )
         .bind(&request.chain_key)
-        .fetch_one(self.pool)
+        .fetch_one(&pool)
         .await?;
-        
+
         if exists > 0 {
             return Err(anyhow::anyhow!("链标识符 '{}' 已存在，请使用不同的标识符", request.chain_key));
         }
-        
+
         let now = Utc::now();
         let chain_id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO chains (
-                chain_key, chain_name, ecosystem, chain_id, native_currency_symbol, 
+                chain_key, chain_name, ecosystem, chain_id, native_currency_symbol,
                 native_currency_name, native_currency_decimals, pic_data,
                 scan_url, scan_api, verify_api, check_verify_api, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -118,7 +115,7 @@ impl<'a> ChainService<'a> {
         .bind(&request.check_verify_api)
         .bind(now)
         .bind(now)
-        .fetch_one(self.pool)
+        .fetch_one(&pool)
         .await?;
 
         // 添加基础代币
@@ -136,7 +133,7 @@ impl<'a> ChainService<'a> {
         .bind(request.native_currency_decimals)
         .bind(now)
         .bind(now)
-        .execute(self.pool)
+        .execute(&pool)
         .await?;
 
         // 添加RPC URLs
@@ -155,7 +152,7 @@ impl<'a> ChainService<'a> {
                     .bind(100)
                     .bind(now)
                     .bind(now)
-                    .execute(self.pool)
+                    .execute(&pool)
                     .await?;
                 }
             }
@@ -163,20 +160,21 @@ impl<'a> ChainService<'a> {
 
         Ok(chain_id)
     }
-    
+
     /// 更新链信息
     pub async fn update_chain(&self, chain_key: &str, request: UpdateChainRequest) -> Result<()> {
+        let pool = get_database_pool();
         let now = Utc::now();
-        
+
         // 检查链是否存在
         let chain = self.get_chain_by_key(chain_key).await?
             .ok_or_else(|| anyhow::anyhow!("链不存在: {chain_key}"))?;
-        
+
         // 更新链基本信息
         sqlx::query(
             r#"
-            UPDATE chains SET 
-                chain_name = ?, ecosystem = ?, chain_id = ?, native_currency_symbol = ?, 
+            UPDATE chains SET
+                chain_name = ?, ecosystem = ?, chain_id = ?, native_currency_symbol = ?,
                 native_currency_name = ?, native_currency_decimals = ?, pic_data = ?,
                 scan_url = ?, scan_api = ?, verify_api = ?, check_verify_api = ?, updated_at = ?
             WHERE id = ?
@@ -195,13 +193,13 @@ impl<'a> ChainService<'a> {
         .bind(&request.check_verify_api)
         .bind(now)
         .bind(chain.id)
-        .execute(self.pool)
+        .execute(&pool)
         .await?;
-        
+
         // 更新基础代币信息
         sqlx::query(
             r#"
-            UPDATE tokens SET 
+            UPDATE tokens SET
                 token_name = ?, symbol = ?, decimals = ?, updated_at = ?
             WHERE chain_id = ? AND token_type = 'base'
             "#
@@ -211,9 +209,9 @@ impl<'a> ChainService<'a> {
         .bind(request.native_currency_decimals)
         .bind(now)
         .bind(chain.id)
-        .execute(self.pool)
+        .execute(&pool)
         .await?;
-        
+
         // 如果提供了新的RPC URLs，先删除旧的，再添加新的
         if let Some(rpc_urls) = request.rpc_urls {
             // 删除旧的RPC提供商
@@ -222,9 +220,9 @@ impl<'a> ChainService<'a> {
             )
             .bind(now)
             .bind(chain.id)
-            .execute(self.pool)
+            .execute(&pool)
             .await?;
-            
+
             // 添加新的RPC提供商
             for rpc_url in rpc_urls.iter() {
                 sqlx::query(
@@ -239,49 +237,53 @@ impl<'a> ChainService<'a> {
                 .bind(100)
                 .bind(now)
                 .bind(now)
-                .execute(self.pool)
+                .execute(&pool)
                 .await?;
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// 删除链（真实删除）
     pub async fn remove_chain(&self, chain_key: &str) -> Result<()> {
+        let pool = get_database_pool();
+
         // 检查链是否存在
         let chain = self.get_chain_by_key(chain_key).await?
             .ok_or_else(|| anyhow::anyhow!("链不存在: {chain_key}"))?;
-        
+
         // 开始事务
-        let mut tx = self.pool.begin().await?;
-        
+        let mut tx = pool.begin().await?;
+
         // 删除链下的所有代币
         sqlx::query("DELETE FROM tokens WHERE chain_id = ?")
             .bind(chain.id)
             .execute(&mut *tx)
             .await?;
-        
+
         // 删除链下的所有RPC提供商
         sqlx::query("DELETE FROM rpc_providers WHERE chain_id = ?")
             .bind(chain.id)
             .execute(&mut *tx)
             .await?;
-        
+
         // 删除链本身
         sqlx::query("DELETE FROM chains WHERE id = ?")
             .bind(chain.id)
             .execute(&mut *tx)
             .await?;
-        
+
         // 提交事务
         tx.commit().await?;
-        
+
         Ok(())
     }
 
     /// 添加代币
     pub async fn add_token(&self, request: CreateTokenRequest) -> Result<i64> {
+        let pool = get_database_pool();
+
         // 获取链ID
         let chain = self.get_chain_by_key(&request.chain_key).await?
             .ok_or_else(|| anyhow::anyhow!("链不存在: {}", request.chain_key))?;
@@ -290,7 +292,7 @@ impl<'a> ChainService<'a> {
         let token_id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO tokens (
-                chain_id, token_key, token_name, symbol, contract_address, 
+                chain_id, token_key, token_name, symbol, contract_address,
                 decimals, token_type, contract_type, abi, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             RETURNING id
@@ -307,7 +309,7 @@ impl<'a> ChainService<'a> {
         .bind(&request.abi)
         .bind(now)
         .bind(now)
-        .fetch_one(self.pool)
+        .fetch_one(&pool)
         .await?;
 
         Ok(token_id)
@@ -315,10 +317,12 @@ impl<'a> ChainService<'a> {
 
     /// 删除代币
     pub async fn remove_token(&self, chain_key: &str, token_key: &str) -> Result<()> {
+        let pool = get_database_pool();
+
         // 直接删除代币记录，不使用软删除
         sqlx::query(
             r#"
-            DELETE FROM tokens 
+            DELETE FROM tokens
             WHERE tokens.chain_id IN (
                 SELECT id FROM chains WHERE chain_key = ?
             ) AND tokens.token_key = ?
@@ -326,7 +330,7 @@ impl<'a> ChainService<'a> {
         )
         .bind(chain_key)
         .bind(token_key)
-        .execute(self.pool)
+        .execute(&pool)
         .await?;
 
         Ok(())
@@ -335,6 +339,7 @@ impl<'a> ChainService<'a> {
     /// 获取代币信息（用于查询余额）
     #[allow(dead_code)]
     pub async fn get_token_info(&self, chain_key: &str, token_key: &str) -> Result<Option<Token>> {
+        let pool = get_database_pool();
         let token = sqlx::query_as::<_, Token>(
             r#"
             SELECT t.* FROM tokens t
@@ -344,7 +349,7 @@ impl<'a> ChainService<'a> {
         )
         .bind(chain_key)
         .bind(token_key)
-        .fetch_optional(self.pool)
+        .fetch_optional(&pool)
         .await?;
 
         Ok(token)
@@ -352,6 +357,7 @@ impl<'a> ChainService<'a> {
 
     /// 根据链key和合约地址获取代币的decimals配置
     pub async fn get_token_decimals_by_contract(&self, chain_key: &str, contract_address: &str) -> Result<Option<i32>> {
+        let pool = get_database_pool();
         let decimals = sqlx::query_scalar::<_, i32>(
             r#"
             SELECT t.decimals FROM tokens t
@@ -361,7 +367,7 @@ impl<'a> ChainService<'a> {
         )
         .bind(chain_key)
         .bind(contract_address)
-        .fetch_optional(self.pool)
+        .fetch_optional(&pool)
         .await?;
 
         Ok(decimals)
@@ -370,6 +376,7 @@ impl<'a> ChainService<'a> {
     /// 根据链key和token_key获取代币的decimals配置
     #[allow(dead_code)]
     pub async fn get_token_decimals_by_key(&self, chain_key: &str, token_key: &str) -> Result<Option<i32>> {
+        let pool = get_database_pool();
         let decimals = sqlx::query_scalar::<_, i32>(
             r#"
             SELECT t.decimals FROM tokens t
@@ -379,18 +386,20 @@ impl<'a> ChainService<'a> {
         )
         .bind(chain_key)
         .bind(token_key)
-        .fetch_optional(self.pool)
+        .fetch_optional(&pool)
         .await?;
 
         Ok(decimals)
     }
-    
+
     /// 更新代币的ABI
     pub async fn update_token_abi(&self, chain_key: &str, token_key: &str, abi: Option<String>) -> Result<()> {
+        let pool = get_database_pool();
+
         // 获取链信息验证链是否存在
         let chain = self.get_chain_by_key(chain_key).await?
             .ok_or_else(|| anyhow::anyhow!("链不存在: {chain_key}"))?;
-        
+
         let rows_affected = sqlx::query(
             r#"
             UPDATE tokens SET abi = ?, updated_at = ?
@@ -401,28 +410,30 @@ impl<'a> ChainService<'a> {
         .bind(Utc::now())
         .bind(chain.id)
         .bind(token_key)
-        .execute(self.pool)
+        .execute(&pool)
         .await?
         .rows_affected();
-        
+
         if rows_affected == 0 {
             return Err(anyhow::anyhow!("代币不存在: {chain_key}/{token_key}"));
         }
-        
+
         Ok(())
     }
 
     /// 更新代币信息
     pub async fn update_token(&self, chain_key: &str, token_key: &str, request: UpdateTokenRequest) -> Result<()> {
+        let pool = get_database_pool();
+
         // 获取链信息验证链是否存在
         let chain = self.get_chain_by_key(chain_key).await?
             .ok_or_else(|| anyhow::anyhow!("链不存在: {chain_key}"))?;
-        
+
         let now = Utc::now();
         let rows_affected = sqlx::query(
             r#"
-            UPDATE tokens SET 
-                token_name = ?, symbol = ?, contract_address = ?, 
+            UPDATE tokens SET
+                token_name = ?, symbol = ?, contract_address = ?,
                 decimals = ?, token_type = ?, contract_type = ?, abi = ?, updated_at = ?
             WHERE chain_id = ? AND token_key = ?
             "#
@@ -437,29 +448,31 @@ impl<'a> ChainService<'a> {
         .bind(now)
         .bind(chain.id)
         .bind(token_key)
-        .execute(self.pool)
+        .execute(&pool)
         .await?
         .rows_affected();
-        
+
         if rows_affected == 0 {
             return Err(anyhow::anyhow!("代币不存在: {chain_key}/{token_key}"));
         }
-        
+
         Ok(())
     }
 
     /// 获取所有 RPC 提供商
     #[allow(dead_code)]
     pub async fn get_all_rpc_providers(&self) -> Result<Vec<RpcProvider>> {
+        let pool = get_database_pool();
         let providers = sqlx::query_as::<_, RpcProvider>(
             "SELECT * FROM rpc_providers ORDER BY chain_id, priority ASC"
-        ).fetch_all(self.pool).await?;
-        
+        ).fetch_all(&pool).await?;
+
         Ok(providers)
     }
 
     /// 根据链标识符获取 RPC 提供商
     pub async fn get_rpc_providers_by_chain(&self, chain_key: &str) -> Result<Vec<RpcProvider>> {
+        let pool = get_database_pool();
         let providers = sqlx::query_as::<_, RpcProvider>(
             r#"
             SELECT rp.* FROM rpc_providers rp
@@ -469,14 +482,15 @@ impl<'a> ChainService<'a> {
             "#
         )
         .bind(chain_key)
-        .fetch_all(self.pool)
+        .fetch_all(&pool)
         .await?;
-        
+
         Ok(providers)
     }
 
     /// 添加 RPC 提供商
     pub async fn add_rpc_provider(&self, chain_id: i64, request: &CreateRpcProviderRequest) -> Result<RpcProvider> {
+        let pool = get_database_pool();
         let now = Utc::now();
         let provider_id = sqlx::query_scalar::<_, i64>(
             r#"
@@ -491,14 +505,14 @@ impl<'a> ChainService<'a> {
         .bind(request.priority)
         .bind(now)
         .bind(now)
-        .fetch_one(self.pool)
+        .fetch_one(&pool)
         .await?;
 
         let provider = sqlx::query_as::<_, RpcProvider>(
             "SELECT * FROM rpc_providers WHERE id = ?"
         )
         .bind(provider_id)
-        .fetch_one(self.pool)
+        .fetch_one(&pool)
         .await?;
 
         Ok(provider)
@@ -509,17 +523,18 @@ impl<'a> ChainService<'a> {
         // 首先根据 chain_key 获取 chain_id
         let chain = self.get_chain_by_key(chain_key).await?
             .ok_or_else(|| anyhow::anyhow!("链不存在: {chain_key}"))?;
-        
+
         // 调用原有的添加方法
         self.add_rpc_provider(chain.id, request).await
     }
 
     /// 更新 RPC 提供商
     pub async fn update_rpc_provider(&self, id: i64, rpc_url: &str, is_active: bool, priority: i32) -> Result<RpcProvider> {
+        let pool = get_database_pool();
         let now = Utc::now();
         sqlx::query(
             r#"
-            UPDATE rpc_providers SET 
+            UPDATE rpc_providers SET
                 rpc_url = ?, is_active = ?, priority = ?, updated_at = ?
             WHERE id = ?
             "#
@@ -529,14 +544,14 @@ impl<'a> ChainService<'a> {
         .bind(priority)
         .bind(now)
         .bind(id)
-        .execute(self.pool)
+        .execute(&pool)
         .await?;
 
         let provider = sqlx::query_as::<_, RpcProvider>(
             "SELECT * FROM rpc_providers WHERE id = ?"
         )
         .bind(id)
-        .fetch_one(self.pool)
+        .fetch_one(&pool)
         .await?;
 
         Ok(provider)
@@ -544,11 +559,12 @@ impl<'a> ChainService<'a> {
 
     /// 删除 RPC 提供商
     pub async fn delete_rpc_provider(&self, id: i64) -> Result<()> {
+        let pool = get_database_pool();
         sqlx::query("DELETE FROM rpc_providers WHERE id = ?")
             .bind(id)
-            .execute(self.pool)
+            .execute(&pool)
             .await?;
-        
+
         Ok(())
     }
 }

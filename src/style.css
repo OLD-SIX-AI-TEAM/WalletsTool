@@ -66,34 +66,110 @@
     --table-selected-bg: #e8f4ff;
     --loading-bg: rgba(255, 255, 255, 0.8);
     --overlay-bg: rgba(0, 0, 0, 0.5);
+
+    /* 状态栏和侧边栏主题变量 - 明亮主题 */
+    --status-bar-bg: linear-gradient(135deg, #ffffff 0%, #f7f8fa 100%);
+    --status-bar-border: #e5e6eb;
+    --status-bar-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+
+    --side-panel-bg: #ffffff;
+    --side-panel-border: #e5e6eb;
+    --side-panel-shadow: 3px 0px 6px 0px rgba(0, 0, 0, 0.08), -1px 0 4px rgba(0, 0, 0, 0.04);
+
+    --side-btn-bg: #f2f3f5;
+    --side-btn-border: #e5e6eb;
+    --side-btn-hover-bg: #e5e6eb;
+    --side-btn-hover-border: #c9cdd4;
+    --side-btn-hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+
+    --side-divider-bg: linear-gradient(to right, transparent, #e5e6eb, transparent);
 }
 
-/* 暗黑主题变量 */
+/* 暗黑主题变量 - 深蓝黑渐变风格 */
 :root[data-theme="dark"] {
-    --primary-color: #3370ff;
-    --text-color: #ffffff;
-    --text-color-secondary: #86909c;
-    --bg-color: rgb(42, 42, 43);
-    --bg-gradient: rgb(42, 42, 43);
-    --card-bg: rgb(35 35 36);
-    --border-color: #3a3a4e;
-    --shadow-color: rgba(0, 0, 0, 0.3);
-    --table-bg: rgb(35, 35, 36);
-    --table-header-bg: rgb(45, 45, 46);
-    --table-header-text-color: #ffffff;
-    --table-text-color: #ffffff;
-    --table-border-color: #3a3a4e;
-    --table-hover-bg: #4a4520;
-    --table-zebra-bg: #4b4b4b;
-    --table-selected-bg: rgba(51, 112, 255, 0.2);
-    --loading-bg: rgba(42, 42, 43, 0.8);
-    --overlay-bg: rgba(0, 0, 0, 0.7);
+    --primary-color: #5b8aff;
+    --text-color: #e8eaf6;
+    --text-color-secondary: #9aa3c2;
+    --bg-color: #0d1117;
+    --bg-gradient: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0f172a 100%);
+    --card-bg: rgba(22, 27, 34, 0.8);
+    --border-color: rgba(88, 108, 199, 0.2);
+    --shadow-color: rgba(0, 0, 0, 0.5);
+    --table-bg: rgba(13, 17, 23, 0.6);
+    --table-header-bg: rgba(22, 27, 34, 0.9);
+    --table-header-text-color: #e8eaf6;
+    --table-text-color: #e8eaf6;
+    --table-border-color: rgba(88, 108, 199, 0.15);
+    --table-hover-bg: rgba(88, 108, 199, 0.15);
+    --table-zebra-bg: rgba(22, 27, 34, 0.4);
+    --table-selected-bg: rgba(91, 138, 255, 0.2);
+    --loading-bg: rgba(13, 17, 23, 0.9);
+    --overlay-bg: rgba(0, 0, 0, 0.8);
+
+    /* Arco Design 变量覆盖 - 深蓝黑主题 */
+    --color-bg-1: #0d1117;
+    --color-bg-2: #161b22;
+    --color-bg-3: #1c2128;
+    --color-bg-4: #21262d;
+    --color-bg-5: #161b22;
+    --color-bg-white: #0d1117;
+
+    --color-text-1: #e8eaf6;
+    --color-text-2: #c9d1d9;
+    --color-text-3: #9aa3c2;
+    --color-text-4: #6e7681;
+
+    --color-fill-1: rgba(88, 108, 199, 0.1);
+    --color-fill-2: rgba(88, 108, 199, 0.15);
+    --color-fill-3: rgba(88, 108, 199, 0.2);
+    --color-fill-4: rgba(88, 108, 199, 0.25);
+
+    --color-border-1: rgba(88, 108, 199, 0.15);
+    --color-border-2: rgba(88, 108, 199, 0.2);
+    --color-border-3: rgba(88, 108, 199, 0.3);
+    --color-border-4: rgba(88, 108, 199, 0.4);
+
+    --color-primary-light-1: rgba(91, 138, 255, 0.2);
+    --color-primary-light-2: rgba(91, 138, 255, 0.3);
+    --color-primary-light-3: rgba(91, 138, 255, 0.4);
+    --color-primary-light-4: rgba(91, 138, 255, 0.5);
+
+    --color-secondary: #9aa3c2;
+    --color-secondary-hover: #b4bcd0;
+    --color-secondary-active: #7d8597;
+    --color-secondary-disabled: #484f58;
+
+    --color-menu-dark-bg: #0d1117;
+    --color-menu-light-bg: #161b22;
+    --color-menu-dark-hover: rgba(88, 108, 199, 0.15);
+    --color-menu-light-hover: rgba(88, 108, 199, 0.1);
+
+    --color-header-bg: #161b22;
+    --color-footer-bg: #0d1117;
+    --color-sider-bg: #161b22;
+
+    /* 状态栏和侧边栏主题变量 */
+    --status-bar-bg: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
+    --status-bar-border: rgba(88, 108, 199, 0.2);
+    --status-bar-shadow: 0 -2px 8px rgba(0, 0, 0, 0.2);
+
+    --side-panel-bg: rgba(22, 27, 34, 0.9);
+    --side-panel-border: rgba(88, 108, 199, 0.2);
+    --side-panel-shadow: 3px 0px 6px 0px rgba(0, 0, 0, 0.2), -1px 0 4px rgba(0, 0, 0, 0.1);
+
+    --side-btn-bg: rgba(13, 17, 23, 0.6);
+    --side-btn-border: rgba(88, 108, 199, 0.25);
+    --side-btn-hover-bg: rgba(88, 108, 199, 0.25);
+    --side-btn-hover-border: rgba(91, 138, 255, 0.5);
+    --side-btn-hover-shadow: 0 2px 8px rgba(91, 138, 255, 0.2);
+
+    --side-divider-bg: linear-gradient(to right, transparent, rgba(88, 108, 199, 0.3), transparent);
 }
 
 /* 应用主题变量 */
 :root {
     color: var(--text-color, #ffffff);
-    background: var(--bg-gradient, rgb(42, 42, 43));
+    background: transparent;
 }
 
 /* 强制覆盖 Arco 框架的字体设置 */
@@ -123,6 +199,7 @@ html,
 
 #app {
     padding: 0;
+    background: transparent;
 }
 
 /* 全局样式 */
@@ -130,20 +207,11 @@ html,
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  user-select: none; /* 禁止文本选中 */
-  -webkit-user-select: none; /* Safari */
-  -moz-user-select: none; /* Firefox */
-  -ms-user-select: none; /* IE10+/Edge */
 }
 
 /* 禁用右键菜单 */
 body {
   -webkit-touch-callout: none; /* iOS Safari */
-  -webkit-user-select: none; /* Safari */
-  -khtml-user-select: none; /* Konqueror HTML */
-  -moz-user-select: none; /* Firefox */
-  -ms-user-select: none; /* Internet Explorer/Edge */
-  user-select: none; /* Non-prefixed version, currently supported by Chrome and Opera */
 }
 
 /* 字体加载优化 */
@@ -174,8 +242,8 @@ body.fonts-loaded {
 .arco-notification-list,
 [class*="arco-notification"],
 div[class*="notification"] {
-  top: 50px !important;
-  left: 10px !important;
+  top: 25px !important;
+  left: 20px !important;
   right: auto !important;
   bottom: auto !important;
 }
@@ -221,7 +289,7 @@ div[class*="notification"] {
 
 /* 通知弹出动画容器 */
 .arco-notification-fade {
-  top: 50px !important;
+  top: 10px !important;
   left: 10px !important;
   right: auto !important;
   bottom: auto !important;
@@ -232,12 +300,23 @@ div[class*="notification"] {
 /* 强制覆盖所有可能的通知位置 */
 body > div:last-child > div[class*="notification"],
 body > div[class*="notification"] {
-  top: 50px !important;
+  top: 10px !important;
   left: 10px !important;
   right: auto !important;
   bottom: auto !important;
   animation: none !important;
   transition: none !important;
+}
+
+/* 限制 Notification 宽度 */
+.arco-notification {
+  max-width: 280px !important;
+  width: auto !important;
+  min-width: 200px !important;
+}
+
+.arco-notification-list .arco-notification {
+  max-width: 280px !important;
 }
 
 /* 虚拟滚动容器滚动条样式 */
@@ -264,18 +343,100 @@ body > div[class*="notification"] {
 
 /* 暗黑主题下的虚拟滚动容器滚动条样式 */
 :root[data-theme="dark"] .p-virtualscroller {
-  scrollbar-color: #4a4a4a #2a2a2a !important;
+  scrollbar-color: rgba(88, 108, 199, 0.4) rgba(13, 17, 23, 0.8) !important;
 }
 
 :root[data-theme="dark"] .p-virtualscroller::-webkit-scrollbar-track {
-  background: #2a2a2a !important;
+  background: rgba(13, 17, 23, 0.8) !important;
 }
 
 :root[data-theme="dark"] .p-virtualscroller::-webkit-scrollbar-thumb {
-  background: #4a4a4a !important;
+  background: rgba(88, 108, 199, 0.4) !important;
   border-radius: 4px !important;
 }
 
 :root[data-theme="dark"] .p-virtualscroller::-webkit-scrollbar-thumb:hover {
-  background: #5a5a5a !important;
+  background: rgba(91, 138, 255, 0.6) !important;
+}
+
+/* ============================================
+   TransferStatusBar 选择器列表滚动条样式
+   ============================================ */
+
+/* 明亮主题 */
+.selector-list {
+  scrollbar-width: thin;
+  scrollbar-color: #c9cdd4 transparent;
+}
+
+.selector-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.selector-list::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.selector-list::-webkit-scrollbar-thumb {
+  background: #c9cdd4;
+  border-radius: 3px;
+}
+
+.selector-list::-webkit-scrollbar-thumb:hover {
+  background: #a9aeb8;
+}
+
+/* 暗黑主题 */
+:root[data-theme="dark"] .selector-list {
+  scrollbar-color: rgba(88, 108, 199, 0.4) transparent;
+}
+
+:root[data-theme="dark"] .selector-list::-webkit-scrollbar-thumb {
+  background: rgba(88, 108, 199, 0.4);
+}
+
+:root[data-theme="dark"] .selector-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(91, 138, 255, 0.6);
+}
+
+/* ============================================
+   全局明亮主题样式
+   通过 body.light-theme 类自动应用
+   ============================================ */
+
+body.light-theme {
+  background: transparent !important;
+}
+
+body.light-theme #app {
+  background: transparent !important;
+}
+
+/* 通用卡片/面板样式 */
+body.light-theme .card-bg,
+body.light-theme .panel-bg {
+  background: rgba(255, 255, 255, 0.95) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+/* 通用按钮悬停样式 */
+body.light-theme .btn-hover:hover {
+  background: rgba(0, 0, 0, 0.05) !important;
+}
+
+/* 通用关闭按钮悬停样式 */
+body.light-theme .close-btn:hover {
+  background: rgba(255, 100, 100, 0.15) !important;
+  color: #e74c3c !important;
+}
+
+/* 通用标题文字 */
+body.light-theme .title-text {
+  color: #2c3e50 !important;
+}
+
+/* 通用次要文字 */
+body.light-theme .secondary-text {
+  color: rgba(0, 0, 0, 0.6) !important;
 }

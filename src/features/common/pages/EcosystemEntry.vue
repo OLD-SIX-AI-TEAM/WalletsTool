@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useEcosystemStore } from '@/stores/ecosystem'
 import { useThemeStore } from '@/stores'
@@ -13,6 +13,16 @@ const themeStore = useThemeStore()
 const appWindow = getCurrentWindow()
 
 const target = ref(route.query.target || 'transfer')
+
+onMounted(async () => {
+  const isTauri = typeof window !== 'undefined' && window.__TAURI_INTERNALS__
+  if (!isTauri) return
+  await nextTick()
+  // 使用 requestAnimationFrame 确保页面已经渲染完成
+  requestAnimationFrame(() => {
+    appWindow.emit('page-loaded')
+  })
+})
 
 // 页面映射配置
 const pageMap = {
@@ -50,7 +60,7 @@ const selectEcosystem = (eco) => {
 }
 
 // 主题相关
-const isDarkTheme = computed(() => themeStore.currentTheme === 'dark')
+const isDarkTheme = computed(() => themeStore.getEffectiveTheme() === 'dark')
 
 // 关闭页面
 const closeWindow = async () => {
@@ -133,8 +143,8 @@ const closeWindow = async () => {
   display: flex;
   justify-content: center;
   align-items: center;
-  background: #1a1b1e; /* Fallback */
-  color: #fff;
+  background: var(--bg-color, #1a1b1e);
+  color: var(--text-color, #fff);
   overflow: hidden;
 }
 
@@ -147,7 +157,31 @@ const closeWindow = async () => {
 }
 .bg-gradient {
   position: absolute; width: 100%; height: 100%;
-  background: linear-gradient(45deg, rgba(16, 20, 40, 0.95), rgba(30, 30, 40, 0.98));
+  background: linear-gradient(135deg, #0a0e1a 0%, #0d1117 25%, #111827 50%, #0f172a 75%, #0a0f1c 100%);
+}
+
+/* 深蓝渐变光晕装饰 */
+.bg-circle {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.4;
+}
+
+.bg-circle-1 {
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(59, 91, 219, 0.3) 0%, transparent 70%);
+  top: -200px;
+  right: -100px;
+}
+
+.bg-circle-2 {
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(30, 58, 138, 0.25) 0%, transparent 70%);
+  bottom: -150px;
+  left: -100px;
 }
 
 .content-wrapper {
@@ -204,15 +238,15 @@ const closeWindow = async () => {
   font-weight: 700;
   margin-bottom: 8px;
   line-height: 1.4;
-  padding-bottom: 4px; /* 防止文字下边缘被裁剪 */
-  background: linear-gradient(90deg, #fff, #a5b4fc);
+  padding-bottom: 4px;
+  background: linear-gradient(90deg, #e8eaf6, #5b8aff);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .page-subtitle {
   font-size: 16px;
-  color: rgba(255, 255, 255, 0.6);
+  color: #9aa3c2;
   margin-bottom: 50px;
 }
 
@@ -223,33 +257,35 @@ const closeWindow = async () => {
 }
 
 .eco-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(22, 27, 34, 0.6);
+  border: 1px solid rgba(88, 108, 199, 0.15);
   border-radius: 20px;
   padding: 40px 30px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
+  backdrop-filter: blur(10px);
 }
 
 .eco-card:hover {
   transform: translateY(-8px);
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(91, 138, 255, 0.4);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 30px rgba(91, 138, 255, 0.1);
 }
 
 .icon-wrapper {
   width: 100px;
   height: 100px;
   margin: 0 auto 24px;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(15, 23, 42, 0.5);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: transform 0.3s ease;
+  border: 1px solid rgba(88, 108, 199, 0.2);
 }
 
 .eco-card:hover .icon-wrapper {
@@ -259,27 +295,27 @@ const closeWindow = async () => {
 .eco-icon {
   width: 50px;
   height: 50px;
-  color: #fff;
+  color: #e8eaf6;
 }
 
 .evm-card .icon-wrapper {
-  background: linear-gradient(135deg, rgba(88, 108, 199, 0.2), rgba(118, 75, 162, 0.2));
-  color: #88AAF1;
+  background: linear-gradient(135deg, rgba(59, 91, 219, 0.25), rgba(91, 138, 255, 0.15));
+  color: #5b8aff;
 }
 
 .solana-card .icon-wrapper {
-  background: linear-gradient(135deg, rgba(0, 255, 163, 0.1), rgba(220, 31, 255, 0.1));
+  background: linear-gradient(135deg, rgba(20, 241, 149, 0.15), rgba(154, 91, 255, 0.15));
   color: #14F195;
 }
 
 h2 {
   font-size: 24px;
   margin-bottom: 12px;
-  color: #fff;
+  color: #e8eaf6;
 }
 
 p {
-  color: rgba(255, 255, 255, 0.5);
+  color: #9aa3c2;
   margin-bottom: 30px;
   min-height: 48px;
 }
@@ -289,15 +325,16 @@ p {
   align-items: center;
   gap: 8px;
   padding: 10px 24px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(88, 108, 199, 0.15);
   border-radius: 30px;
   font-weight: 500;
   transition: all 0.3s ease;
+  color: #9aa3c2;
 }
 
 .eco-card:hover .arrow-btn {
-  background: #fff;
-  color: #000;
+  background: linear-gradient(135deg, #3b5bdb, #5b8aff);
+  color: #fff;
   padding-right: 20px;
 }
 
@@ -377,7 +414,7 @@ p {
 }
 
 .light-theme .solana-card .icon-wrapper {
-  background: linear-gradient(135deg, rgba(0, 255, 163, 0.15), rgba(220, 31, 255, 0.15));
-  color: #10b981; /* 稍深一点的绿色以在浅色背景下可见 */
+  background: linear-gradient(135deg, rgba(0, 255, 163, 0.25), rgba(220, 31, 255, 0.25));
+  color: #5b21b6;
 }
 </style>

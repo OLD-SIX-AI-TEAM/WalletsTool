@@ -22,6 +22,7 @@ const RpcManagement = defineAsyncComponent(() => import('@/components/RpcManagem
 const TokenManagement = defineAsyncComponent(() => import('@/components/TokenManagement.vue'))
 const CodeEditor = defineAsyncComponent(() => import('@/components/CodeEditor.vue'))
 const ProxyConfigModal = defineAsyncComponent(() => import('@/components/ProxyConfigModal.vue'))
+const WalletSystemImportModal = defineAsyncComponent(() => import('@/components/WalletSystemImportModal.vue'))
 
 // 组件配置参数（props）：是否查询最后交易时间，默认 false
 const props = defineProps({})
@@ -38,6 +39,7 @@ const columns = [
     title: '钱包地址',
     align: 'center',
     dataIndex: 'address',
+    width: 180,
     ellipsis: true,
     tooltip: true
   },
@@ -77,6 +79,7 @@ const columns = [
     title: '错误信息',
     align: 'center',
     dataIndex: 'error_msg',
+    width: 120,
     ellipsis: true,
     tooltip: true,
   },
@@ -158,6 +161,8 @@ const form = reactive({
 // 录入 钱包地址 弹窗
 let visible = ref(false)
 let importText = ref('')
+const systemImportVisible = ref(false)
+const walletDbReady = ref(false) // 钱包数据库是否已初始化
 // 导入loading状态
 let importLoading = ref(false)
 // 地址验证相关
@@ -482,6 +487,9 @@ onMounted(async () => {
       currentWindowId.value = currentWindow.label;
       console.log('当前窗口ID:', currentWindowId.value);
 
+      // 检查钱包管理是否已初始化（只需检查是否设置过密码，不需要当前解锁）
+      try { walletDbReady.value = await invoke('is_wallet_manager_initialized'); } catch (e) { walletDbReady.value = false; }
+
       // 添加Tauri窗口关闭事件监听器
       await currentWindow.onCloseRequested(async (event) => {
         console.log('窗口关闭事件触发，正在停止后台操作...');
@@ -711,6 +719,83 @@ function clearData() {
 // 导入事件触发
 function handleManualImport() {
   visible.value = true
+}
+
+function openSystemImport() {
+  systemImportVisible.value = true
+}
+
+function importAddressesToTable(addressList) {
+  const raw = (addressList || []).map((a) => String(a || '').trim()).filter(Boolean)
+  const originalCount = raw.length
+  if (!originalCount) return { originalCount: 0, successCount: 0, internalDupCount: 0, existingDupCount: 0, invalidCount: 0 }
+
+  const invalidList = raw.filter((a) => !validateAddress(a))
+  const invalidCount = invalidList.length
+
+  let importList = raw.filter((a) => validateAddress(a))
+  const uniqueAddresses = new Set()
+  importList = importList.filter((item) => {
+    if (uniqueAddresses.has(item)) return false
+    uniqueAddresses.add(item)
+    return true
+  })
+  const internalDupCount = (raw.length - invalidCount) - importList.length
+
+  const existingAddresses = new Set(data.value.map((item) => item.address))
+  const beforeFilterCount = importList.length
+  importList = importList.filter((item) => !existingAddresses.has(item))
+  const existingDupCount = beforeFilterCount - importList.length
+
+  const newItems = importList.map((item) => ({
+    address: item,
+    nonce: '',
+    plat_balance: '',
+    coin_balance: '',
+    exec_status: '0',
+    error_msg: ''
+  }))
+
+  if (newItems.length) {
+    data.value.push(...newItems)
+  }
+
+  return {
+    originalCount,
+    successCount: importList.length,
+    internalDupCount,
+    existingDupCount,
+    invalidCount,
+  }
+}
+
+function handleSystemImportConfirm(wallets) {
+  const addresses = (wallets || []).map((w) => w?.address).filter(Boolean)
+  const stats = importAddressesToTable(addresses)
+  const filteredCount = stats.internalDupCount + stats.existingDupCount + stats.invalidCount
+
+  if (stats.originalCount === 0) {
+    Notification.warning({ content: '未选择任何地址', position: 'topLeft' })
+    return
+  }
+
+  if (filteredCount > 0) {
+    const details = []
+    if (stats.invalidCount > 0) details.push(`无效${stats.invalidCount}条`)
+    if (stats.internalDupCount > 0) details.push(`内部重复${stats.internalDupCount}条`)
+    if (stats.existingDupCount > 0) details.push(`与现有数据重复${stats.existingDupCount}条`)
+    Notification.warning({
+      title: '导入完成！',
+      content: `原始地址${stats.originalCount}条，成功导入${stats.successCount}条，已过滤：${details.join('、')}`,
+      position: 'topLeft',
+    })
+  } else {
+    Notification.success({
+      title: '导入成功！',
+      content: `成功导入${stats.successCount}条地址`,
+      position: 'topLeft',
+    })
+  }
 }
 
 // 验证地址格式
@@ -994,6 +1079,17 @@ const debouncedExportAllToExcel = debounce(exportAllToExcel, 600);
 const debouncedExportSelectToExcel = debounce(exportSelectToExcel, 600);
 const debouncedClearData = debounce(clearData, 600);
 const debouncedDeleteItemConfirm = debounce(deleteItemConfirm, 400);
+
+// 清空剪贴板功能
+async function clearClipboard() {
+  try {
+    await navigator.clipboard.writeText('');
+    Notification.success({ content: '剪贴板已清空', position: 'topLeft' });
+  } catch (error) {
+    console.error('清空剪贴板失败:', error);
+    Notification.error({ content: '清空剪贴板失败', position: 'topLeft' });
+  }
+}
 
 // 查询余额（改为使用Rust后端）
 async function queryBalance() {
@@ -1545,10 +1641,12 @@ async function handleBeforeClose() {
             @update:selected-keys="selectedKeys = $event"
             @open-manual-import="handleManualImport"
             @open-file-upload="handleFileUpload"
+            @open-system-import="openSystemImport"
             row-key="address"
             height="100%"
             page-type="balance"
             :empty-data="filteredData.length === 0"
+            :show-system-import="walletDbReady"
             class="table-with-side-actions"
           >
 
@@ -1642,6 +1740,7 @@ async function handleBeforeClose() {
           <div class="side-actions-content-fixed">
             <a-tooltip content="钱包录入" position="left"><a-button type="primary" size="mini" @click="handleManualImport"><template #icon><Icon icon="mdi:wallet" style="color: #165dff; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="导入文件" position="left"><a-button type="primary" size="mini" @click="handleFileUpload"><template #icon><Icon icon="mdi:upload" style="color: #00b42a; font-size: 20px" /></template></a-button></a-tooltip>
+            <a-tooltip v-if="walletDbReady" content="从系统导入" position="left"><a-button type="primary" size="mini" status="warning" @click="openSystemImport"><template #icon><Icon icon="mdi:database-import" style="color: #ff7d00; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="清空表格" position="left"><a-button type="primary" status="danger" size="mini" @click="debouncedClearData"><template #icon><Icon icon="mdi:delete-sweep" style="color: #f53f3f; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="导出数据" position="left">
               <a-dropdown>
@@ -1665,7 +1764,11 @@ async function handleBeforeClose() {
             <a-tooltip content="选中失败的数据" position="left"><a-button type="outline" status="danger" size="mini" @click="selectFailed"><template #icon><Icon icon="mdi:close-circle" style="color: #f53f3f; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="反选" position="left"><a-button type="outline" size="mini" @click="InvertSelection"><template #icon><Icon icon="mdi:swap-horizontal" style="color: #165dff; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="高级筛选" position="left"><a-button type="primary" size="mini" @click="showAdvancedFilter"><template #icon><Icon icon="mdi:filter" style="color: #165dff; font-size: 20px" /></template></a-button></a-tooltip>
-            <a-tooltip content="删除选中" position="left"><a-button type="outline" status="danger" size="mini" @click="debouncedDeleteSelected"><template #icon><Icon icon="mdi:trash-can" style="color: #f53f3f; font-size: 20px" /></template></a-button></a-tooltip>
+<a-tooltip content="删除选中" position="left"><a-button type="outline" status="danger" size="mini" @click="debouncedDeleteSelected"><template #icon><Icon icon="mdi:trash-can" style="color: #f53f3f; font-size: 20px" /></template></a-button></a-tooltip>
+            
+            <div class="side-actions-divider"></div>
+            
+            <a-tooltip content="清空剪贴板" position="left"><a-button type="outline" status="warning" size="mini" @click="clearClipboard"><template #icon><Icon icon="mdi:clipboard-remove" style="color: #ff7d00; font-size: 20px" /></template></a-button></a-tooltip>
           </div>
         </div>
       </div>
@@ -1772,7 +1875,6 @@ async function handleBeforeClose() {
         <a-dropdown position="tr">
           <div class="status-settings-btn" title="设置"><Icon icon="mdi:cog" style="font-size: 15px" /></div>
           <template #content>
-            <a-doption @click="toggleChainSelector"><template #icon><Icon icon="mdi:swap-horizontal" /></template>重新选择区块链</a-doption>
             <a-doption @click="showTokenManage" :disabled="!chainValue"><template #icon><Icon icon="mdi:coin" /></template>代币管理</a-doption>
             <a-doption @click="showRpcManage" :disabled="!chainValue"><template #icon><Icon icon="mdi:link" /></template>RPC管理</a-doption>
             <a-doption @click="showChainManage"><template #icon><Icon icon="mdi:web" /></template>区块链管理</a-doption>
@@ -1821,6 +1923,8 @@ async function handleBeforeClose() {
       </a-alert>
     </div>
   </a-modal>
+
+  <WalletSystemImportModal v-model:visible="systemImportVisible" ecosystem="evm" import-mode="address_only" :title="'从系统导入查询地址'" @confirm="handleSystemImportConfirm" @cancel="systemImportVisible = false" />
   
   <!-- 添加代币弹窗 -->
   <a-modal v-model:visible="addCoinVisible" :width="700" title="添加代币" @cancel="handleAddCoinCancel"
@@ -1952,6 +2056,7 @@ async function handleBeforeClose() {
   overflow: hidden; /* Prevent scrollbar during transitions */
   padding: 50px 10px 50px 10px; /* 为顶部TitleBar和底部StatusBar留出空间 */
   min-width: 1000px;
+  background: var(--bg-color, rgb(42, 42, 43));
 }
 
 .container::-webkit-scrollbar {
@@ -1968,6 +2073,12 @@ async function handleBeforeClose() {
   display: flex;
   align-items: center;
 }
+:deep(.arco-dropdown) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown-list) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown ::-webkit-scrollbar) { display: none !important; width: 0 !important; height: 0 !important; }
+:deep(.arco-trigger-content) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-trigger-popup) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown-wrapper) { overflow: visible !important; max-height: none !important; }
 
 /* 主内容区 */
 .main-content {
@@ -2040,15 +2151,15 @@ async function handleBeforeClose() {
 
 .side-actions-panel-fixed {
   width: 50px;
-  background: var(--color-bg-2, #ffffff);
-  border: 1px solid var(--color-border, #e5e6eb);
+  background: var(--side-panel-bg);
+  border: 1px solid var(--side-panel-border);
   border-radius: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 10px;
-  pointer-events: none; /* 让鼠标事件穿透到下层，除了内容 */
-  box-shadow: 3px 0px 6px 0px rgba(0, 0, 0, 0.06), -1px 0 4px rgba(0, 0, 0, 0.03);
+  pointer-events: none;
+  box-shadow: var(--side-panel-shadow);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   height: 100%;
 }
@@ -2060,7 +2171,7 @@ async function handleBeforeClose() {
   align-items: center;
   gap: 8px;
   opacity: 1;
-  pointer-events: auto; /* 恢复内容交互 */
+  pointer-events: auto;
   flex: 1;
   justify-content: center;
 }
@@ -2068,7 +2179,7 @@ async function handleBeforeClose() {
 .side-actions-divider {
   width: 30px;
   height: 1px;
-  background: linear-gradient(to right, transparent, var(--color-border, #e2e4e8), transparent);
+  background: var(--side-divider-bg);
   margin: 8px 0;
 }
 
@@ -2081,49 +2192,49 @@ async function handleBeforeClose() {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  border: 1px solid var(--color-border, #e2e4e8);
-  background: var(--color-fill-1, #f7f8fa);
+  border: 1px solid var(--side-btn-border);
+  background: var(--side-btn-bg);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .side-actions-content-fixed :deep(.arco-btn:hover) {
-  background: var(--color-primary-light-1, #e8f0ff);
-  border-color: var(--color-primary-5, #4086ff);
+  background: var(--side-btn-hover-bg);
+  border-color: var(--side-btn-hover-border);
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(22, 93, 255, 0.15);
+  box-shadow: var(--side-btn-hover-shadow);
 }
 
 .side-actions-content-fixed :deep(.arco-btn[type='primary']) {
-  background: linear-gradient(135deg, var(--color-primary-6, #165dff) 0%, var(--color-primary-5, #4086ff) 100%);
-  border-color: var(--color-primary-6, #165dff);
-  box-shadow: 0 2px 6px rgba(22, 93, 255, 0.25);
+  background: linear-gradient(135deg, #3b5bdb 0%, #5b8aff 100%);
+  border-color: #5b8aff;
+  box-shadow: 0 2px 6px rgba(91, 138, 255, 0.3);
 }
 
 .side-actions-content-fixed :deep(.arco-btn[type='primary']:hover) {
-  background: linear-gradient(135deg, var(--color-primary-5, #4086ff) 0%, var(--color-primary-6, #165dff) 100%);
-  box-shadow: 0 4px 12px rgba(22, 93, 255, 0.35);
+  background: linear-gradient(135deg, #5b8aff 0%, #3b5bdb 100%);
+  box-shadow: 0 4px 12px rgba(91, 138, 255, 0.4);
 }
 
 .side-actions-content-fixed :deep(.arco-btn[status='success']) {
-  background: linear-gradient(135deg, var(--color-success-6, #0fa962) 0%, var(--color-success-5, #12b576) 100%);
-  border-color: var(--color-success-6, #0fa962);
-  box-shadow: 0 2px 6px rgba(15, 169, 98, 0.25);
+  background: linear-gradient(135deg, #0d8a4f 0%, #14b866 100%);
+  border-color: #14b866;
+  box-shadow: 0 2px 6px rgba(20, 184, 102, 0.3);
 }
 
 .side-actions-content-fixed :deep(.arco-btn[status='success']:hover) {
-  background: linear-gradient(135deg, var(--color-success-5, #12b576) 0%, var(--color-success-6, #0fa962) 100%);
-  box-shadow: 0 4px 12px rgba(15, 169, 98, 0.35);
+  background: linear-gradient(135deg, #14b866 0%, #0d8a4f 100%);
+  box-shadow: 0 4px 12px rgba(20, 184, 102, 0.4);
 }
 
 .side-actions-content-fixed :deep(.arco-btn[status='danger']) {
-  background: linear-gradient(135deg, var(--color-danger-6, #f53f3f) 0%, var(--color-danger-5, #ff7d7d) 100%);
-  border-color: var(--color-danger-6, #f53f3f);
-  box-shadow: 0 2px 6px rgba(245, 63, 63, 0.25);
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+  border-color: #ef4444;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3);
 }
 
 .side-actions-content-fixed :deep(.arco-btn[status='danger']:hover) {
-  background: linear-gradient(135deg, var(--color-danger-5, #ff7d7d) 0%, var(--color-danger-6, #f53f3f) 100%);
-  box-shadow: 0 4px 12px rgba(245, 63, 63, 0.35);
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
 }
 
 /* 表格与侧边栏联动 */
@@ -2301,9 +2412,9 @@ async function handleBeforeClose() {
   left: 0;
   right: 0;
   height: 40px;
-  background: linear-gradient(to bottom, var(--color-bg-2, #ffffff), var(--color-bg-1, #f7f8fa));
-  border-top: 1px solid var(--color-border, #e5e6eb);
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04);
+  background: var(--status-bar-bg);
+  border-top: 1px solid var(--status-bar-border);
+  box-shadow: var(--status-bar-shadow);
   display: flex;
   align-items: center;
   justify-content: space-between;

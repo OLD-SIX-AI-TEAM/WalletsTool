@@ -36,6 +36,14 @@ Batch transfer composables for Solana (native + SPL tokens). Mirror of Ethereum 
 - **Backend Calls**: Prefix commands with `sol_` (e.g., `sol_transfer`).
 - **State**: Local state only; no global Pinia store for transient transfer data.
 
+## IMPORTING WALLETS
+
+Transfer supports three import sources:
+
+- **Manual input:** `src/components/WalletImportModal.vue` → emits `{ privateKeys, addresses }` and `Transfer.vue` derives the from-address using `Keypair.fromSecretKey(bs58.decode(privateKey))`.
+- **File import:** `composables/useDataOperations.ts` reads CSV/XLSX and appends rows into `data.value`.
+- **System import:** `src/components/WalletSystemImportModal.vue` selects wallets from wallet manager (`get_wallets` / `get_watch_addresses`). For transfer, it requests secrets via `get_wallet_secrets` (password required) and only imports wallets that have private keys.
+
 ## BACKEND COMMANDS
 
 ```javascript

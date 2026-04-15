@@ -16,6 +16,7 @@ import {
   Input,
   InputNumber,
   Select,
+  Cascader,
   Option,
   Switch,
   Tabs,
@@ -37,11 +38,16 @@ import {
   InputGroup,
   Notification,
   Message,
-  Popover
+  Popover,
+  Tree,
+  List,
+  ListItem,
+  Icon
 } from '@arco-design/web-vue';
 import '@arco-design/web-vue/dist/arco.css';
 import "./style.css";
 import {createPinia} from 'pinia'
+import { useThemeStore } from './stores'
 
 // 预加载关键资源
 const preloadResources = () => {
@@ -89,6 +95,12 @@ window.addEventListener('unhandledrejection', (event) => {
 const pinia = createPinia()
 const app = createApp(App)
 
+app.use(pinia)
+app.use(router)
+
+const themeStore = useThemeStore()
+themeStore.initTheme()
+
 // 添加Vue错误处理
 app.config.errorHandler = (err, vm, info) => {
   console.error('Vue错误处理器:', {
@@ -109,6 +121,7 @@ app.use(FormItem)
 app.use(Input)
 app.use(InputNumber)
 app.use(Select)
+app.use(Cascader)
 app.use(Option)
 app.use(Switch)
 app.use(Tag)
@@ -128,12 +141,13 @@ app.use(Dropdown)
 app.use(Doption)
 app.use(InputGroup)
 app.use(Popover)
+app.use(Tree)
+app.use(List)
+app.use(ListItem)
+app.use(Icon)
 
 app.use(PrimeVue);
 app.component('VirtualScroller', VirtualScroller)
-
-app.use(router)
-app.use(pinia)
 
 // 执行预加载和优化
 preloadResources();

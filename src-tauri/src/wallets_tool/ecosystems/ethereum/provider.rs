@@ -9,7 +9,7 @@ use alloy_primitives::U256;
 use reqwest::{Client, Proxy};
 use url::Url;
 use std::sync::Arc;
-use crate::database::{get_database_manager, chain_service::ChainService};
+use crate::database::chain_service::ChainService;
 use super::alloy_utils::format_wei_to_gwei;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -60,8 +60,7 @@ pub async fn create_provider_with_client(
 }
 
 pub async fn get_all_chain_configs() -> Result<HashMap<String, ChainRpcConfig>, Box<dyn std::error::Error>> {
-    let db_manager = get_database_manager();
-    let chain_service = ChainService::new(db_manager.get_pool());
+    let chain_service = ChainService::new();
     
     let chain_infos = chain_service.get_all_chains().await?;
     let mut configs = HashMap::new();

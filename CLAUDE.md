@@ -116,21 +116,22 @@ Register in `main.rs` invoke_handler via `#[tauri::generate_handler!]` macro and
 ## Technology Stack
 
 ### Frontend Dependencies
-- Vue 3.5.17 with Composition API
-- PrimeVue 4.3.7 + Arco Design 2.57.0 for UI components
-- Vue Router 4.5.1 with hash-based routing
-- Pinia 3.0.3 for state management
-- ethers.js 5.7.0 for Ethereum interactions
+- Vue 3.5.26 with Composition API
+- PrimeVue 4.5.4 + Arco Design 2.57.0 for UI components
+- Vue Router 4.6.5 with hash-based routing
+- Pinia 3.0.4 for state management
+- ethers.js 6.13.4 for Ethereum interactions
 - xlsx 0.18.5 for Excel file handling
 - party-js 2.2.0 for animations
 - qrcode for QR code generation
+- @solana/web3.js 1.91.0 + @solana/spl-token 0.4.0 for Solana support
 
 ### Backend Dependencies
-- Tauri 2.1 with custom protocol support
+- Tauri 2.9 with custom protocol support
 - SQLx 0.7 for database operations with SQLite
 - tokio 1.0 for async runtime
 - reqwest 0.11 for HTTP client functionality
-- ethers 1.0 (Rust) for blockchain operations
+- ethers 2.0 (Rust) for blockchain operations
 - chrono for datetime handling
 - serde for serialization/deserialization
 
@@ -189,3 +190,51 @@ Register in `main.rs` invoke_handler via `#[tauri::generate_handler!]` macro and
 - **Batch transfers**: Configurable delays between transactions to mimic natural user behavior
 - **Transaction tracking**: Status monitoring with automatic retry on failure
 - **ERC-20 support**: Full token transfer capability with ABI management
+
+## E2E TESTING
+
+The project includes a comprehensive Playwright-based E2E testing framework for testing frontend + Tauri backend integration.
+
+### Quick Start
+
+```bash
+# Install Playwright browsers
+npx playwright install chromium
+
+# Run tests
+npm run test:e2e          # Headless mode
+npm run test:e2e:headed   # With browser visible
+npm run test:e2e:ui       # Interactive UI mode
+```
+
+### Key Testing Patterns
+
+1. **Invoke Tauri Commands from Tests:**
+```typescript
+const wallets = await invokeTauriCommand<any[]>(page, 'get_wallets', {
+  group_id: null,
+  chain_type: null,
+  password: null,
+});
+```
+
+2. **Wait for Tauri App:**
+```typescript
+await page.goto('/#/wallet-manager');
+await waitForTauriApp(page);
+```
+
+3. **Test Data Consistency:**
+```typescript
+const backendData = await invokeTauriCommand(page, 'get_wallets', {});
+const frontendCount = await page.locator('table tbody tr').count();
+expect(frontendCount).toBe(backendData.length);
+```
+
+### Test Files
+- `e2e/wallet-manager.spec.ts` - Wallet manager integration tests
+- `e2e/balance-query.spec.ts` - Balance query integration tests
+- `e2e/api-integration.spec.ts` - API contract tests
+- `e2e/tauri-helpers.ts` - Test utilities
+
+See `AGENTS.md` for detailed testing documentation.

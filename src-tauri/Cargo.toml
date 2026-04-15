@@ -1,6 +1,6 @@
 [package]
 name = "WalletsTool"
-version = "0.4.5"
+version = "0.4.28"
 description = "web3 链上钱包管理工具集，基于 Vue3 Tauri 等技术"
 authors = ["renmk"]
 license = ""
@@ -18,8 +18,13 @@ serde = { version = "1.0", features = ["derive"] }
 tauri = { version = "2.9.5", features = ["tray-icon", "wry"], default-features = false }
 tauri-plugin-shell = "2.3.4"
 tauri-plugin-dialog = "2.6.0"
+tauri-plugin-process = "2.0.0"
+tauri-plugin-updater = "2.0.0"
+tauri-plugin-fs = "2.4.1"
 anyhow = "1.0.98"
-tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "fs", "net", "time"] }
+tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "fs", "net", "time", "process"] }
+tokio-util = { version = "0.7" }
+uuid = { version = "1.0", features = ["v4"] }
 # HTTP 客户端
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 # 异步流处理
@@ -32,8 +37,10 @@ url = "2.0"
 dirs = "5.0"
 # 懒加载静态变量
 lazy_static = "1.4"
-# 数据库
+# 数据库 - 使用 SQLCipher 加密
 sqlx = { version = "0.7.4", features = ["runtime-tokio-rustls", "sqlite", "chrono", "macros"], default-features = false }
+# SQLCipher 支持 - 启用 bundled-sqlcipher 特性
+libsqlite3-sys = { version = "0.27", features = ["bundled-sqlcipher"] }
 chrono = { version = "0.4.41", features = ["serde"] }
 # 以太坊相关
 alloy = { version = "1.4.0", default-features = false, features = [
@@ -52,7 +59,7 @@ alloy = { version = "1.4.0", default-features = false, features = [
 ] }
 alloy-provider = "1.4"
 alloy-primitives = "1.4"
-alloy-signer-local = "1.4"
+alloy-signer-local = { version = "1.4", features = ["mnemonic"] }
 alloy-rpc-types-eth = "1.4"
 alloy-network = "1.4"
 alloy-signer = "1.4"
@@ -68,6 +75,8 @@ bincode = "1.3"
 base64 = "0.22.1"
 # 正则表达式
 regex = "1.10"
+# Cron表达式解析
+cron = "0.14"
 # 加密相关
 aes = "0.8"
 cbc = "0.1"
@@ -75,7 +84,10 @@ zeroize = { version = "^1.8", features = ["derive"] }
 sha2 = "0.10"
 winapi = { version = "0.3", features = ["memoryapi", "debugapi", "sysinfoapi", "processthreadsapi", "errhandlingapi"] }
 block-padding = "0.3"
+pbkdf2 = "0.12"
+hmac = "0.12"
 openssl = { version = "0.10", features = ["vendored"] }
+log = "0.4"
 
 # Release模式优化配置
 [profile.release]

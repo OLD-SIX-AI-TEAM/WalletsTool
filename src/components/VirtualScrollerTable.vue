@@ -1,7 +1,7 @@
 <template>
   <div ref="tableContainerRef" class="virtual-scroller-table" :style="{ height: height, width: '100%' }">
     <!-- 表头 -->
-    <div class="table-header">
+    <div ref="headerRef" class="table-header">
       <div class="header-row" :style="{ paddingRight: scrollbarPadding }">
         <!-- 选择列 -->
         <div v-if="rowSelection" class="header-cell checkbox-cell">
@@ -17,8 +17,19 @@
         <div
           v-for="column in sortedColumns"
           :key="column.dataIndex || column.slotName"
-          class="header-cell"
-          :style="{ ...getHeaderColumnStyle(column), textAlign: column.align || 'left' }"
+          :class="[
+            'header-cell',
+            {
+              'sticky-right': isFixedRightColumn(column),
+              'sticky-right-first': isFirstFixedRightColumn(column),
+              'optional-cell': isOptionalColumn(column),
+            },
+          ]"
+          :style="{
+            ...getHeaderColumnStyle(column),
+            ...getStickyRightStyle(column),
+            textAlign: column.align || 'left',
+          }"
         >
           {{ column.title }}
         </div>
@@ -47,6 +58,25 @@
               <icon icon="mdi:upload" :size="16" style="margin-right: 4px" />
               手动录入钱包
             </a-button>
+            <a-button
+              type="primary"
+              style="margin-top: 12px;margin-left: 20px"
+              status="success"
+              @click="$emit('open-file-upload')"
+            >
+              <icon icon="mdi:upload" :size="16" style="margin-right: 4px" />
+              上传文件导入
+            </a-button>
+            <a-button
+              v-if="showSystemImport"
+              type="primary"
+              style="margin-top: 12px;margin-left: 20px"
+              status="warning"
+              @click="$emit('open-system-import')"
+            >
+              <icon icon="mdi:database-import" :size="16" style="margin-right: 4px" />
+              从系统导入
+            </a-button>
           </div>
         </template>
         <template v-else-if="pageType === 'monitor'">
@@ -54,6 +84,20 @@
             <Icon icon="icon-park-outline:wallet" style="width: 64px; height: 64px;"/>
           </div>
           <div class="empty-text">还没有监控数据</div>
+        </template>
+        <template v-else-if="pageType === 'wallet_manager'">
+          <div class="empty-icon">
+            <Icon icon="icon-park-outline:wallet" style="width: 64px; height: 64px;"/>
+          </div>
+          <div class="empty-text">还没有钱包数据</div>
+          <div class="empty-text-second">请先添加钱包或批量导入</div>
+        </template>
+        <template v-else-if="pageType === 'system_import'">
+          <div class="empty-icon">
+            <Icon icon="icon-park-outline:wallet" style="width: 64px; height: 64px;"/>
+          </div>
+          <div class="empty-text">暂无可导入的钱包</div>
+          <div class="empty-text-second">请切换分组或调整筛选条件</div>
         </template>
         <template v-else-if="pageType === 'transfer'">
           <div class="empty-icon">
@@ -79,6 +123,16 @@
               <icon icon="mdi:upload" :size="16" style="margin-right: 4px" />
               上传文件导入（推荐）
             </a-button>
+            <a-button
+              v-if="showSystemImport"
+              type="primary"
+              style="margin-top: 12px;margin-left: 20px"
+              status="warning"
+              @click="$emit('open-system-import')"
+            >
+              <icon icon="mdi:database-import" :size="16" style="margin-right: 4px" />
+              从系统导入
+            </a-button>
           </div>
           <div style="margin-top: 15px; display: flex; align-items: center; justify-content: center;">
             <Icon
@@ -98,6 +152,12 @@
             </span>
           </div>
         </template>
+        <template v-else>
+          <div class="empty-icon">
+            <Icon icon="icon-park-outline:wallet" style="width: 64px; height: 64px;"/>
+          </div>
+          <div class="empty-text">暂无数据</div>
+        </template>
       </div>
 
       <VirtualScroller
@@ -106,6 +166,7 @@
         :items="data"
         :itemSize="35"
         class="virtual-scroller"
+        @scroll="handleScroll"
       >
         <template #item="{ item, options }">
           <div
@@ -116,7 +177,7 @@
               clickable: true,
               'zebra-stripe': getItemIndex(item) % 2 === 1,
             }"
-            v-memo="[getRowKey(item), isRowSelected(item), isRowHovered(item), item.exec_status, item.private_key, item.to_addr, item.amount, item.plat_balance, item.coin_balance, item.error_msg]"
+            v-memo="getMemoDeps(item)"
             @click="handleRowClick(item, getItemIndex(item))"
           >
             <!-- 选择列 -->
@@ -133,10 +194,18 @@
             <div
               v-for="column in sortedColumns"
               :key="column.dataIndex || column.slotName"
-              class="table-cell"
-              :class="{ 'copyable-cell': isCopyableColumn(column) }"
+              :class="[
+                'table-cell',
+                {
+                  'copyable-cell': isCopyableColumn(column),
+                  'sticky-right': isFixedRightColumn(column),
+                  'sticky-right-first': isFirstFixedRightColumn(column),
+                  'optional-cell': isOptionalColumn(column),
+                },
+              ]"
               :style="{
                 ...getContentColumnStyle(column),
+                ...getStickyRightStyle(column),
                 textAlign: column.align || 'left',
               }"
               :title="getTooltipText(column, item)"
@@ -256,10 +325,14 @@ const props = defineProps({
     type: Boolean,
     default: null, // null 表示自动根据 data.length 判断
   },
+  showSystemImport: {
+    type: Boolean,
+    default: true, // 是否显示"从系统导入"按钮
+  },
 });
 
 // Emits
-const emit = defineEmits(["row-click", "update:selectedKeys", "open-manual-import", "open-file-upload", "download-template"]);
+const emit = defineEmits(["row-click", "update:selectedKeys", "open-manual-import", "open-file-upload", "open-system-import", "download-template"]);
 
 // 私钥脱敏工具函数
 const maskPrivateKey = (value) => {
@@ -353,12 +426,20 @@ const showEmptyData = computed(() => {
 // 滚动条相关状态
 const scrollerRef = ref(null);
 const tableContainerRef = ref(null);
+const headerRef = ref(null);
 const scrollbarWidth = ref(0);
 const hasScrollbar = ref(false);
 const scrollbarPadding = computed(() => {
   return hasScrollbar.value ? scrollbarWidth.value + 'px' : '0';
 });
 let resizeObserver = null;
+
+// 处理横向滚动，同步表头位置
+const handleScroll = (event) => {
+  if (headerRef.value && event.target) {
+    headerRef.value.scrollLeft = event.target.scrollLeft;
+  }
+};
 
 const checkScrollbar = () => {
   if (scrollerRef.value && scrollerRef.value.$el) {
@@ -416,8 +497,9 @@ const updateScrollerHeight = () => {
   if (!scrollerRef.value || !scrollerRef.value.$el) return;
   const scrollerEl = scrollerRef.value.$el;
   const containerHeight = tableContainerRef.value?.clientHeight || 0;
-  // 减去表头高度(40)、边框误差(2)和底部状态栏预留空间(30)
-  const scrollerHeight = containerHeight - 40 - 2 - 30; 
+  const bottomReserved = props.pageType === 'system_import' ? -2 : 30;
+  // 减去表头高度(40)、边框误差(2)和底部状态栏预留空间
+  const scrollerHeight = containerHeight - 40 - 2 - bottomReserved; 
   if (scrollerHeight > 0) {
     scrollerEl.style.height = `${scrollerHeight}px`;
   }
@@ -431,21 +513,102 @@ watch(() => props.data, () => {
 }, { deep: true, immediate: true });
 
 // 计算表头列宽度（保持原始设置不变）
+const getColumnKey = (column) => {
+  return column.dataIndex || column.slotName || column.title;
+};
+
+const isOptionalColumn = (column) => {
+  return column?.slotName === "optional";
+};
+
+const isFixedRightColumn = (column) => {
+  return column?.fixed === "right" || isOptionalColumn(column);
+};
+
+const isFirstFixedRightColumn = (column) => {
+  if (!isFixedRightColumn(column)) return false;
+  const cols = sortedColumns.value || [];
+  for (let i = 0; i < cols.length; i++) {
+    if (isFixedRightColumn(cols[i])) {
+      return getColumnKey(cols[i]) === getColumnKey(column);
+    }
+  }
+  return false;
+};
+
+const getColumnWidth = (column) => {
+  const width = Number(column?.width);
+  if (Number.isFinite(width) && width > 0) return width;
+  if (isFixedRightColumn(column)) return 120;
+  return null;
+};
+
+const fixedRightOffsetMap = computed(() => {
+  const cols = sortedColumns.value || [];
+  const map = new Map();
+  let offset = 0;
+  for (let i = cols.length - 1; i >= 0; i--) {
+    const col = cols[i];
+    if (!isFixedRightColumn(col)) continue;
+    map.set(getColumnKey(col), offset);
+    offset += getColumnWidth(col) ?? 0;
+  }
+  return map;
+});
+
+const getStickyRightStyle = (column) => {
+  if (!isFixedRightColumn(column)) return {};
+  const offset = fixedRightOffsetMap.value.get(getColumnKey(column)) ?? 0;
+  return { "--sticky-right-offset": `${offset}px` };
+};
+
+const fillColumnKey = computed(() => {
+  const cols = sortedColumns.value || [];
+  const firstRightIndex = cols.findIndex(isFixedRightColumn);
+  if (firstRightIndex <= 0) return null;
+  const hasFlexibleBeforeRight = cols.slice(0, firstRightIndex).some((col) => {
+    const width = Number(col?.width);
+    return !isFixedRightColumn(col) && !(Number.isFinite(width) && width > 0);
+  });
+  if (hasFlexibleBeforeRight) return null;
+  const candidate = cols[firstRightIndex - 1];
+  if (!candidate || isFixedRightColumn(candidate)) return null;
+  return getColumnKey(candidate);
+});
+
 const getHeaderColumnStyle = (column) => {
-  if (column.width) {
-    return { width: column.width + "px", flexShrink: 0 };
+  const key = getColumnKey(column);
+  if (fillColumnKey.value && key === fillColumnKey.value && !isFixedRightColumn(column)) {
+    const minWidth = Number(column?.width);
+    if (Number.isFinite(minWidth) && minWidth > 0) {
+      return { flex: "1 1 0", minWidth: `${minWidth}px` };
+    }
+    return { flex: "1 1 0", minWidth: "100px" };
+  }
+  const width = getColumnWidth(column);
+  if (width) {
+    return { width: `${width}px`, flex: `0 0 ${width}px` };
   }
   // 没有设置宽度的列使用flex: 1来占满剩余空间
-  return { flex: 1, minWidth: "100px" };
+  return { flex: "1 1 0", minWidth: "100px" };
 };
 
 // 计算虚拟滚动内容列宽度
 const getContentColumnStyle = (column) => {
-  if (column.width) {
-    return { width: column.width + "px", flexShrink: 0 };
+  const key = getColumnKey(column);
+  if (fillColumnKey.value && key === fillColumnKey.value && !isFixedRightColumn(column)) {
+    const minWidth = Number(column?.width);
+    if (Number.isFinite(minWidth) && minWidth > 0) {
+      return { flex: "1 1 0", minWidth: `${minWidth}px` };
+    }
+    return { flex: "1 1 0", minWidth: "100px" };
+  }
+  const width = getColumnWidth(column);
+  if (width) {
+    return { width: `${width}px`, flex: `0 0 ${width}px` };
   }
   // 没有设置宽度的列使用flex: 1来占满剩余空间
-  return { flex: 1, minWidth: "100px" };
+  return { flex: "1 1 0", minWidth: "100px" };
 };
 
 // 方法
@@ -456,6 +619,22 @@ const isRowSelected = (item) => {
 
 const isRowHovered = (item) => {
   return props.hoverKeys.includes(getRowKey(item));
+};
+
+const getMemoDeps = (item) => {
+  const deps = [getRowKey(item), isRowSelected(item), isRowHovered(item), getItemIndex(item)];
+  const cols = sortedColumns.value || [];
+  for (let i = 0; i < cols.length; i++) {
+    const col = cols[i];
+    if (col?.dataIndex) {
+      deps.push(item[col.dataIndex]);
+      continue;
+    }
+    if (col?.slotName && col.slotName !== 'index') {
+      deps.push(item[col.slotName]);
+    }
+  }
+  return deps;
 };
 
 const handleRowClick = (item, index) => {
@@ -505,9 +684,9 @@ const getDisplayText = (column, item) => {
     return maskPrivateKey(value);
   }
 
-  // 特殊处理error_msg字段，只显示前25个字符
-  if (column.dataIndex === "error_msg" && value.length > 25) {
-    return value.substring(0, 25) + "...";
+  // 特殊处理error_msg字段，只显示前35个字符
+  if (column.dataIndex === "error_msg" && value.length > 35) {
+    return value.substring(0, 35) + "...";
   }
 
   return value;
@@ -718,15 +897,22 @@ const handleWheel = () => {
   flex-shrink: 0;
   width: 100%;
   max-width: 100%;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.table-header::-webkit-scrollbar {
+  display: none;
 }
 
 .header-row {
   display: flex;
   height: 40px;
   align-items: center;
-  width: 100%;
-  max-width: 100%;
+  width: fit-content;
+  min-width: 100%;
   box-sizing: border-box;
 }
 
@@ -737,6 +923,7 @@ const handleWheel = () => {
   border-right: 1px solid var(--table-border-color, #e5e6eb);
   display: flex;
   align-items: center;
+  min-width: 0;
 }
 
 .header-cell:last-child {
@@ -774,7 +961,8 @@ const handleWheel = () => {
   border-bottom: 1px solid var(--table-border-color, #f2f3f5);
   transition: background-color 0.2s;
   background: var(--table-bg, #ffffff);
-  width: 100%;
+  width: fit-content;
+  min-width: 100%;
 }
 
 .table-row.zebra-stripe {
@@ -806,6 +994,9 @@ const handleWheel = () => {
   display: flex;
   align-items: center;
   min-height: 35px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .table-cell:last-child {
@@ -833,6 +1024,33 @@ const handleWheel = () => {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+}
+
+.header-cell.sticky-right {
+  position: sticky;
+  right: var(--sticky-right-offset, 0px);
+  z-index: 6;
+  background: var(--table-header-bg, #f7f8fa);
+}
+
+.table-cell.sticky-right {
+  position: sticky;
+  right: var(--sticky-right-offset, 0px);
+  z-index: 3;
+  background: inherit;
+  border-bottom: 1px solid var(--table-border-color, #f2f3f5);
+}
+
+.header-cell.sticky-right-first,
+.table-cell.sticky-right-first {
+  margin-left: auto;
+  /* border-left: 1px solid var(--table-border-color, #e5e6eb); */
+}
+
+.header-cell.optional-cell,
+.table-cell.optional-cell {
+  padding: 0 6px;
+  justify-content: center;
 }
 
 .loading-overlay {

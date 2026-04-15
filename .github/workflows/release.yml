@@ -40,12 +40,12 @@ jobs:
       - name: Sync node version and setup cache
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
+          node-version: '20'
           cache: 'yarn'
           cache-dependency-path: 'yarn.lock'
 
       - name: Install frontend dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --frozen-lockfile --prefer-offline
 
       - name: Verify data files exist
         run: |
@@ -56,7 +56,7 @@ jobs:
           console.log('=== Checking data files ===');
 
           const dataDir = 'src-tauri/data';
-          const requiredFiles = ['init.sql', 'wallets_tool.db'];
+          const requiredFiles = ['public_init.sql', 'secure_init.sql'];
 
           try {
             const files = fs.readdirSync(dataDir);
@@ -86,47 +86,61 @@ jobs:
           path: |
             vcpkg
             ~/.vcpkg
-          key: vcpkg-openssl-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          key: vcpkg-openssl-${{ runner.os }}-x64-windows-static-md-v1
           restore-keys: |
             vcpkg-openssl-${{ runner.os }}-
 
       - name: Setup vcpkg (Windows)
         if: runner.os == 'Windows' && steps.cache-vcpkg.outputs.cache-hit != 'true'
         run: |
-          git clone https://github.com/Microsoft/vcpkg.git
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git
           cd vcpkg
           .\bootstrap-vcpkg.bat
-          .\vcpkg integrate install
         shell: pwsh
 
       - name: Install OpenSSL (Windows)
         if: runner.os == 'Windows'
         run: |
+          $triplet = 'x64-windows-static-md'
+          $opensslLib = Join-Path $env:GITHUB_WORKSPACE "vcpkg\installed\$triplet\lib\libssl.lib"
+          if (Test-Path $opensslLib) {
+            Write-Host "OpenSSL already present at $opensslLib"
+            exit 0
+          }
+
           cd vcpkg
-          .\vcpkg install openssl:x64-windows-static-md --triplet x64-windows-static-md
+          .\vcpkg install "openssl:$triplet" --triplet $triplet
         shell: pwsh
 
       - name: Set VCPKG_ROOT (Windows)
         if: runner.os == 'Windows'
         run: |
+          $triplet = 'x64-windows-static-md'
           echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "OPENSSL_LIB_DIR=${{ github.workspace }}/vcpkg/installed/x64-windows-static-md/lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          echo "OPENSSL_INCLUDE_DIR=${{ github.workspace }}/vcpkg/installed/x64-windows-static-md/include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "OPENSSL_LIB_DIR=${{ github.workspace }}/vcpkg/installed/$triplet/lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "OPENSSL_INCLUDE_DIR=${{ github.workspace }}/vcpkg/installed/$triplet/include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         shell: pwsh
+
+      - name: Prepare updater signing key
+        run: node scripts/ci/prepare-tauri-signing-key.cjs
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ""
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          WALLETSTOOL_UPDATER_PUBKEY: ${{ secrets.TAURI_UPDATER_PUBKEY }}
           # 临时禁用代码签名以解决macOS兼容性问题
           CI: true
         with:
           tagName: ${{ github.ref_name || github.event.inputs.version }}
           releaseName: 'Wallets Tool ${{ github.ref_name || github.event.inputs.version }}'
           releaseBody: |
-            ## 🎉 新版本发布 v0.4.5
+            ## 🎉 新版本发布 v0.4.28
             
             ### 📦 安装包下载
             - **Windows**: 下载 `.exe` 文件
@@ -134,11 +148,57 @@ jobs:
             ### 🔄 更新说明
             ### ✨ New Features | 新功能
             
-            - **balance:** 默认展开侧边面板以提升用户体验
+            - **主题:** 添加主题切换开关并支持多窗口同步
             
-            ### 🔧 Chore | 杂项
+            ### 🐛 Bug Fixes | 修复
             
-            - 更新钱包工具数据库文件
+            - 优化代理镜像列表并调整超时时间
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
+            
+
             
 
             

@@ -30,6 +30,7 @@ const ChainManagement = defineAsyncComponent(() => import('@/components/ChainMan
 const RpcManagement = defineAsyncComponent(() => import('@/components/RpcManagement.vue'));
 const TokenManagement = defineAsyncComponent(() => import('@/components/TokenManagement.vue'));
 const WalletImportModal = defineAsyncComponent(() => import('@/components/WalletImportModal.vue'));
+const WalletSystemImportModal = defineAsyncComponent(() => import('@/components/WalletSystemImportModal.vue'));
 const ProxyConfigModal = defineAsyncComponent(() => import('@/components/ProxyConfigModal.vue'));
 
 const router = useRouter();
@@ -62,13 +63,13 @@ initWindowTitle()
 const columns = [
   { title: '序号', align: 'center', width: 53, slotName: 'index' },
   { title: '发送方私钥', align: 'center', dataIndex: 'private_key', width: 180, ellipsis: true, tooltip: true },
-  { title: '接收地址', align: 'center', dataIndex: 'to_addr', ellipsis: true, tooltip: true },
+  { title: '接收地址', align: 'center', dataIndex: 'to_addr', width: 180, ellipsis: true, tooltip: true },
   { title: '转账数量', align: 'center', dataIndex: 'amount', width: 85, ellipsis: true, tooltip: true },
   { title: '平台币余额', align: 'center', dataIndex: 'plat_balance', width: 95, ellipsis: true, tooltip: true },
   { title: '代币余额', align: 'center', dataIndex: 'coin_balance', width: 85, ellipsis: true, tooltip: true },
   { title: '状态', align: 'center', slotName: 'exec_status', width: 90, ellipsis: true, tooltip: true },
-  { title: '返回信息', align: 'center', dataIndex: 'error_msg', ellipsis: true, tooltip: true },
-  { title: '操作', align: 'center', slotName: 'optional', width: 55, ellipsis: true, tooltip: true },
+  { title: '返回信息', align: 'center', dataIndex: 'error_msg', width: 120, ellipsis: true, tooltip: true },
+  { title: '操作', align: 'center', slotName: 'optional', width: 60, ellipsis: true, tooltip: true },
 ];
 
 let tableLoading = ref(false);
@@ -76,6 +77,9 @@ let pageLoading = ref(false);
 const data = ref([]);
 const selectedKeys = ref([]);
 const rowSelection = reactive({ type: 'checkbox', showCheckedAll: true, onlyCurrent: false });
+
+const systemImportVisible = ref(false)
+const walletDbReady = ref(false) // 钱包数据库是否已初始化
 
 function rowClick(record, event) {
   const index = selectedKeys.value.indexOf(record.key);
@@ -819,6 +823,82 @@ function handleWalletImportConfirm(importData) {
 
 function handleWalletImportCancel() { console.log('钱包导入已取消'); }
 
+function openSystemImport() {
+  systemImportVisible.value = true
+}
+
+function handleSystemImportConfirm(payload) {
+  const fromWallets = payload?.from_wallets || []
+  const toAddressesRaw = payload?.to_addresses || []
+
+  if (!fromWallets.length) {
+    Notification.warning({ content: '未选择任何出账钱包', position: 'topLeft' })
+    return
+  }
+
+  const toAddresses = toAddressesRaw.map((a) => (a ? String(a).trim() : '')).filter(Boolean)
+
+  const newData = []
+  let successCount = 0
+  let failCount = 0
+  let missingToCount = 0
+  let ignoredToCount = 0
+
+  if (toAddressesRaw.length > fromWallets.length && toAddressesRaw.length !== 1) {
+    ignoredToCount = toAddressesRaw.length - fromWallets.length
+  }
+
+  for (let i = 0; i < fromWallets.length; i++) {
+    const w = fromWallets[i]
+    const privateKey = w?.private_key ? String(w.private_key).trim() : ''
+    if (!privateKey) {
+      failCount++
+      continue
+    }
+    try {
+      const secretKey = bs58.decode(privateKey)
+      const keypair = Keypair.fromSecretKey(secretKey)
+      const fromAddress = keypair.publicKey.toBase58()
+      const toAddress = toAddresses.length === 1 ? toAddresses[0] : (toAddresses[i] || '')
+      if (!toAddress && toAddresses.length !== 1) missingToCount++
+      newData.push({
+        key: `transfer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        private_key: privateKey,
+        address: fromAddress,
+        to_addr: toAddress,
+        amount: '',
+        plat_balance: '',
+        coin_balance: '',
+        exec_status: '0',
+        error_msg: '',
+      })
+      successCount++
+    } catch (e) {
+      failCount++
+    }
+  }
+
+  if (newData.length > 0) {
+    data.value = [...data.value, ...newData]
+    clearValidationCache()
+  }
+
+  const extraInfo = []
+  if (missingToCount > 0) extraInfo.push(`${missingToCount} 条未匹配到收款地址`)
+  if (ignoredToCount > 0) extraInfo.push(`${ignoredToCount} 条收款地址未使用`)
+  const suffix = extraInfo.length ? `（${extraInfo.join('，')}）` : ''
+
+  if (failCount > 0) {
+    Notification.warning({
+      title: '导入完成！',
+      content: `成功导入${successCount}条，失败${failCount}条${suffix}`,
+      position: 'topLeft',
+    })
+  } else if (successCount > 0) {
+    Notification.success({ title: '导入成功！', content: `成功导入${successCount}条${suffix}`, position: 'topLeft' })
+  }
+}
+
 function handleFileUpload() { upload(); }
 
 async function downloadTemplateAction() { downloadTemplateFn(); }
@@ -1037,6 +1117,17 @@ const debouncedHandleClick = customDebounce(handleManualImport, 500);
 const debouncedClearData = customDebounce(clearData, 600);
 const debouncedDeleteItemConfirm = customDebounce(deleteItemConfirm, 400);
 const debouncedOpenMultipleWindow = customDebounce(openMultipleWindow, 600);
+
+// 清空剪贴板功能
+async function clearClipboard() {
+  try {
+    await navigator.clipboard.writeText('');
+    Notification.success({ content: '剪贴板已清空', position: 'topLeft' });
+  } catch (error) {
+    console.error('清空剪贴板失败:', error);
+    Notification.error({ content: '清空剪贴板失败', position: 'topLeft' });
+  }
+}
 
 function selectSucceeded() {
   if (data.value.length === 0) { Notification.warning({ content: '请先导入数据后再进行选择！', position: 'topLeft' }); return; }
@@ -1422,6 +1513,8 @@ onMounted(async () => {
       windowTitle.value = (await currentWindow.title()) || '批量转账';
       currentWindowId.value = currentWindow.label;
       await initProxyStatus();
+      // 检查钱包管理是否已初始化（只需检查是否设置过密码，不需要当前解锁）
+      try { walletDbReady.value = await invoke('is_wallet_manager_initialized'); } catch (e) { walletDbReady.value = false; }
     } catch (error) { console.error('获取窗口信息失败:', error); }
   } else { windowTitle.value = '批量转账'; currentWindowId.value = 'browser_transfer_window'; }
   document.addEventListener('click', handleClickOutside);
@@ -1486,7 +1579,7 @@ function handleClickOutside(event) {
       <div class="left-panel" style="flex: 1; display: flex; flex-direction: column; overflow: visible;">
         <div class="table-section" id="table-section" style="flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative">
           <TableSkeleton v-if="(tableLoading || balanceLoading) && data.length === 0" :rows="8" />
-            <VirtualScrollerTable :columns="columns" :data="data" :row-selection="rowSelection" :loading="tableLoading" :selected-keys="selectedKeys" @row-click="rowClick" @update:selected-keys="selectedKeys = $event" @open-manual-import="handleManualImport" @open-file-upload="handleFileUpload" @download-template="downloadTemplateAction" row-key="key" height="100%" :empty-data="data.length === 0" class="table-with-side-actions" :class="{ 'expanded': !isSidePanelExpanded }" :hover-keys="Object.keys(rowHoverStates).filter((key) => rowHoverStates[key])">
+            <VirtualScrollerTable :columns="columns" :data="data" :row-selection="rowSelection" :loading="tableLoading" :selected-keys="selectedKeys" @row-click="rowClick" @update:selected-keys="selectedKeys = $event" @open-manual-import="handleManualImport" @open-file-upload="handleFileUpload" @open-system-import="openSystemImport" @download-template="downloadTemplateAction" row-key="key" height="100%" :empty-data="data.length === 0" :show-system-import="walletDbReady" class="table-with-side-actions" :class="{ 'expanded': !isSidePanelExpanded }" :hover-keys="Object.keys(rowHoverStates).filter((key) => rowHoverStates[key])">
             <template #exec_status="{ record }">
               <div class="exec-status-wrapper" @mouseenter="rowHoverStates[record.key] = true" @mouseleave="rowHoverStates[record.key] = false">
                 <a-tooltip content="" trigger="hover" :mouseEnterDelay="300" :mouseLeaveDelay="100" :popup-style="{ padding: 0, pointerEvents: 'auto' }">
@@ -1665,6 +1758,7 @@ function handleClickOutside(event) {
           <div class="side-actions-content-fixed" style="height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 20px 0; min-width: 60px;">
             <a-tooltip content="钱包录入" position="left"><a-button type="primary" size="mini" @click="handleManualImport"><template #icon><Icon icon="mdi:wallet" style="color: #165dff; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="导入文件" position="left"><a-button type="primary" size="mini" @click="handleFileUpload"><template #icon><Icon icon="mdi:upload" style="color: #00b42a; font-size: 20px" /></template></a-button></a-tooltip>
+            <a-tooltip v-if="walletDbReady" content="从系统导入" position="left"><a-button type="primary" size="mini" status="warning" @click="openSystemImport"><template #icon><Icon icon="mdi:database-import" style="color: #ff7d00; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="清空表格" position="left"><a-button type="primary" status="danger" size="mini" @click="debouncedClearData"><template #icon><Icon icon="mdi:delete-sweep" style="color: #f53f3f; font-size: 20px" /></template></a-button></a-tooltip>
 <a-tooltip content="下载模板" position="left"><a-button size="mini" @click="downloadTemplateAction"><template #icon><Icon icon="mdi:file-download" style="color: #4e5969; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="导出私钥地址" position="left">
@@ -1687,12 +1781,17 @@ function handleClickOutside(event) {
             <a-tooltip content="选中失败的数据" position="left"><a-button type="outline" status="danger" size="mini" @click="selectFailed"><template #icon><Icon icon="mdi:close-circle" style="color: #f53f3f; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="反选" position="left"><a-button type="outline" size="mini" @click="InvertSelection"><template #icon><Icon icon="mdi:swap-horizontal" style="color: #165dff; font-size: 20px" /></template></a-button></a-tooltip>
             <a-tooltip content="高级筛选" position="left"><a-button type="primary" size="mini" @click="showAdvancedFilter"><template #icon><Icon icon="mdi:filter" style="color: #165dff; font-size: 20px" /></template></a-button></a-tooltip>
-            <a-tooltip content="删除选中" position="left"><a-button type="outline" status="danger" size="mini" @click="deleteSelected"><template #icon><Icon icon="mdi:trash-can" style="color: #f53f3f; font-size: 20px" /></template></a-button></a-tooltip>
+<a-tooltip content="删除选中" position="left"><a-button type="outline" status="danger" size="mini" @click="deleteSelected"><template #icon><Icon icon="mdi:trash-can" style="color: #f53f3f; font-size: 20px" /></template></a-button></a-tooltip>
+            
+            <div class="side-actions-divider"></div>
+            
+            <a-tooltip content="清空剪贴板" position="left"><a-button type="outline" status="warning" size="mini" @click="clearClipboard"><template #icon><Icon icon="mdi:clipboard-remove" style="color: #ff7d00; font-size: 20px" /></template></a-button></a-tooltip>
           </div>
         </div>
       </div>
     </div>
     <WalletImportModal ref="walletImportRef" ecosystem="solana" @confirm="handleWalletImportConfirm" @cancel="handleWalletImportCancel" />
+    <WalletSystemImportModal v-model:visible="systemImportVisible" ecosystem="solana" import-mode="transfer_pair" :title="'从系统导入（私钥 + 收款地址）'" @confirm="handleSystemImportConfirm" @cancel="systemImportVisible = false" />
     <a-modal v-model:visible="addCoinVisible" :width="700" title="添加代币" @cancel="handleAddCoinCancel" :on-before-ok="handleAddCoinBeforeOk" unmountOnClose>
       <a-input v-model="coinAddress" placeholder="请输入代币合约地址" allow-clear />
     </a-modal>
@@ -1876,7 +1975,6 @@ function handleClickOutside(event) {
         <a-dropdown>
           <div class="status-settings-btn" title="设置"><Icon icon="mdi:cog" style="font-size: 15px" /></div>
           <template #content>
-            <a-doption @click="toggleChainSelector"><template #icon><Icon icon="mdi:swap-horizontal" /></template>重新选择区块链</a-doption>
             <a-doption @click="showTokenManage" :disabled="!chainValue"><template #icon><Icon icon="mdi:coin" /></template>代币管理</a-doption>
             <a-doption @click="showRpcManage" :disabled="!chainValue"><template #icon><Icon icon="mdi:link" /></template>RPC管理</a-doption>
             <a-doption @click="showChainManage"><template #icon><Icon icon="mdi:web" /></template>区块链管理</a-doption>
@@ -1891,10 +1989,16 @@ function handleClickOutside(event) {
 
 
 <style scoped>
-.container { height: 100vh; display: flex; flex-direction: column; overflow: visible; padding: 50px 10px 50px 10px; min-width: 1240px; }
+.container { height: 100vh; display: flex; flex-direction: column; overflow: visible; padding: 50px 10px 50px 10px; min-width: 1240px; background: var(--bg-color, rgb(42, 42, 43)); }
 .container::-webkit-scrollbar { display: none; }
 .container { -ms-overflow-style: none; scrollbar-width: none; }
 :deep(.arco-dropdown-option-content) { display: flex; align-items: center; }
+:deep(.arco-dropdown) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown-list) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown ::-webkit-scrollbar) { display: none !important; width: 0 !important; height: 0 !important; }
+:deep(.arco-trigger-content) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-trigger-popup) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown-wrapper) { overflow: visible !important; max-height: none !important; }
 .main-content { flex: 1; display: flex; overflow: visible; position: relative; }
 .left-panel { flex: 1; display: flex; flex-direction: column; overflow: visible; min-width: 0; }
 .table-section { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
@@ -1943,7 +2047,7 @@ function handleClickOutside(event) {
 .progress-slide-leave-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.6, 1); }
 .progress-slide-enter-from { opacity: 0; transform: translateX(-50%) translateY(-100%); }
 .progress-slide-leave-to { opacity: 0; transform: translateX(-50%) translateY(-100%); }
-.status-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 40px; background: linear-gradient(to bottom, var(--color-bg-2, #ffffff), var(--color-bg-1, #f7f8fa)); border-top: 1px solid var(--color-border, #e5e6eb); box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.04); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; z-index: 1000; font-size: 12px; }
+.status-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 40px; background: var(--status-bar-bg); border-top: 1px solid var(--status-bar-border); box-shadow: var(--status-bar-shadow); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; z-index: 1000; font-size: 12px; }
 .status-bar-left { display: flex; align-items: center; gap: 12px; }
 .status-bar-right { display: flex; align-items: center; gap: 8px; }
 .status-group { display: flex; align-items: center; gap: 8px; }
@@ -1998,23 +2102,23 @@ function handleClickOutside(event) {
 .status-item-disabled:hover { background: transparent !important; }
 .status-item-disabled:hover .status-label { color: var(--text-color, #1d2129) !important; }
 .status-item-disabled .status-explorer-tag { cursor: not-allowed !important; pointer-events: none; }
-.side-actions-panel-fixed { width: 50px; background: var(--color-bg-2, #ffffff); border: 1px solid var(--color-border, #e5e6eb); border-radius: 8px; display: flex; flex-direction: column; align-items: center; padding: 10px; pointer-events: none; box-shadow: 3px 0px 6px 0px rgba(0, 0, 0, 0.06), -1px 0 4px rgba(0, 0, 0, 0.03); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.side-actions-panel-fixed { width: 50px; background: var(--side-panel-bg); border: 1px solid var(--side-panel-border); border-radius: 8px; display: flex; flex-direction: column; align-items: center; padding: 10px; pointer-events: none; box-shadow: var(--side-panel-shadow); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 .side-actions-panel-fixed.side-actions-panel-collapsed { width: 50px; background: transparent; border: none; box-shadow: none; padding: 0; }
 .side-actions-content-fixed { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; opacity: 1; pointer-events: auto; flex: 1; }
-.side-actions-divider { width: 40px; height: 1px; background: linear-gradient(to right, transparent, var(--color-border, #e2e4e8), transparent); margin: 15px 0; }
-.side-actions-content-fixed .arco-btn { width: 38px; height: 38px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid var(--color-border, #e2e4e8); background: var(--color-fill-1, #f7f8fa); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-.side-actions-content-fixed .arco-btn:hover { background: var(--color-primary-light-1, #e8f0ff); border-color: var(--color-primary-5, #4086ff); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(22, 93, 255, 0.15); }
-.side-actions-content-fixed .arco-btn > .arco-btn-icon { margin: 0; font-size: 20px; color: var(--text-color-secondary, #6b778c); }
-.side-actions-content-fixed .arco-btn:hover > .arco-btn-icon { color: var(--color-primary-6, #165dff); }
-.side-actions-content-fixed .arco-btn[type='primary'] { background: linear-gradient(135deg, var(--color-primary-6, #165dff) 0%, var(--color-primary-5, #4086ff) 100%); border-color: var(--color-primary-6, #165dff); box-shadow: 0 2px 6px rgba(22, 93, 255, 0.25); }
+.side-actions-divider { width: 40px; height: 1px; background: var(--side-divider-bg); margin: 15px 0; }
+.side-actions-content-fixed .arco-btn { width: 38px; height: 38px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid var(--side-btn-border); background: var(--side-btn-bg); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+.side-actions-content-fixed .arco-btn:hover { background: var(--side-btn-hover-bg); border-color: var(--side-btn-hover-border); transform: translateY(-1px); box-shadow: var(--side-btn-hover-shadow); }
+.side-actions-content-fixed .arco-btn > .arco-btn-icon { margin: 0; font-size: 20px; color: var(--color-text-3, #9aa3c2); }
+.side-actions-content-fixed .arco-btn:hover > .arco-btn-icon { color: var(--color-text-1, #e8eaf6); }
+.side-actions-content-fixed .arco-btn[type='primary'] { background: linear-gradient(135deg, #3b5bdb 0%, #5b8aff 100%); border-color: #5b8aff; box-shadow: 0 2px 6px rgba(91, 138, 255, 0.3); }
 .side-actions-content-fixed .arco-btn[type='primary'] > .arco-btn-icon { color: #ffffff; }
-.side-actions-content-fixed .arco-btn[type='primary']:hover { background: linear-gradient(135deg, var(--color-primary-5, #4086ff) 0%, var(--color-primary-6, #165dff) 100%); box-shadow: 0 4px 12px rgba(22, 93, 255, 0.35); transform: translateY(-2px); }
-.side-actions-content-fixed .arco-btn[status='success'] { background: linear-gradient(135deg, var(--color-success-6, #0fa962) 0%, var(--color-success-5, #12b576) 100%); border-color: var(--color-success-6, #0fa962); box-shadow: 0 2px 6px rgba(15, 169, 98, 0.25); }
+.side-actions-content-fixed .arco-btn[type='primary']:hover { background: linear-gradient(135deg, #5b8aff 0%, #3b5bdb 100%); box-shadow: 0 4px 12px rgba(91, 138, 255, 0.4); transform: translateY(-2px); }
+.side-actions-content-fixed .arco-btn[status='success'] { background: linear-gradient(135deg, #0d8a4f 0%, #14b866 100%); border-color: #14b866; box-shadow: 0 2px 6px rgba(20, 184, 102, 0.3); }
 .side-actions-content-fixed .arco-btn[status='success'] > .arco-btn-icon { color: #ffffff; }
-.side-actions-content-fixed .arco-btn[status='success']:hover { background: linear-gradient(135deg, var(--color-success-5, #12b576) 0%, var(--color-success-6, #0fa962) 100%); box-shadow: 0 4px 12px rgba(15, 169, 98, 0.35); transform: translateY(-2px); }
-.side-actions-content-fixed .arco-btn[status='danger'] { background: linear-gradient(135deg, var(--color-danger-6, #f53f3f) 0%, var(--color-danger-5, #ff7d7d) 100%); border-color: var(--color-danger-6, #f53f3f); box-shadow: 0 2px 6px rgba(245, 63, 63, 0.25); }
+.side-actions-content-fixed .arco-btn[status='success']:hover { background: linear-gradient(135deg, #14b866 0%, #0d8a4f 100%); box-shadow: 0 4px 12px rgba(20, 184, 102, 0.4); transform: translateY(-2px); }
+.side-actions-content-fixed .arco-btn[status='danger'] { background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%); border-color: #ef4444; box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3); }
 .side-actions-content-fixed .arco-btn[status='danger'] > .arco-btn-icon { color: #ffffff; }
-.side-actions-content-fixed .arco-btn[status='danger']:hover { background: linear-gradient(135deg, var(--color-danger-5, #ff7d7d) 0%, var(--color-danger-6, #f53f3f) 100%); box-shadow: 0 4px 12px rgba(245, 63, 63, 0.35); transform: translateY(-2px); }
+.side-actions-content-fixed .arco-btn[status='danger']:hover { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4); transform: translateY(-2px); }
 .table-container { flex: 1; display: flex; position: relative; overflow: visible; width: 100%; }
 .table-with-side-actions { margin-top: 0; height: 100%; }
 .exec-actions { display: flex; gap: 4px; padding: 4px 6px; }

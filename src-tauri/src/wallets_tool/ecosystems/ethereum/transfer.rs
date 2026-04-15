@@ -11,7 +11,7 @@ use alloy_signer::Signer;
 use url::Url;
 use std::sync::Arc;
 use rand::Rng;
-use crate::database::get_database_manager;
+use crate::database::get_database_pool;
 use crate::wallets_tool::ecosystems::ethereum::provider::{ProviderUtils, create_provider_with_client, create_http_client_with_proxy, AlloyProvider};
 use crate::wallets_tool::security::SecureMemory;
 use sqlx::Row;
@@ -169,7 +169,7 @@ impl RpcConfig {
 pub async fn get_rpc_config(chain: &str) -> Option<RpcConfig> {
     println!("[DEBUG] get_rpc_config - 开始获取链 '{chain}' 的RPC配置");
     
-    let pool = get_database_manager().get_pool();
+    let pool = get_database_pool();
     
     // 首先获取链信息
     println!("[DEBUG] get_rpc_config - 查询链信息...");
@@ -179,7 +179,7 @@ pub async fn get_rpc_config(chain: &str) -> Option<RpcConfig> {
         "#
     )
     .bind(chain)
-    .fetch_optional(pool)
+    .fetch_optional(&pool)
     .await
     {
         Ok(Some(row)) => {
@@ -212,7 +212,7 @@ pub async fn get_rpc_config(chain: &str) -> Option<RpcConfig> {
         "#
     )
     .bind(db_chain_id)
-    .fetch_all(pool)
+    .fetch_all(&pool)
     .await
     {
         Ok(providers) => {
@@ -847,7 +847,21 @@ format_wei_to_ether(total_needed),
         value: U256,
         is_eth: bool,
     ) -> Result<U256, String> {
-        // 首先获取区块gas limit作为上限检查
+        let tx = TransactionRequest {
+            from: Some(from),
+            to: Some(to.into()),
+            value: Some(value),
+            ..Default::default()
+        };
+        Self::get_gas_limit_for_tx(config, provider, tx, is_eth).await
+    }
+
+    pub async fn get_gas_limit_for_tx(
+        config: &TransferConfig,
+        provider: Arc<AlloyProvider>,
+        tx: TransactionRequest,
+        is_eth: bool,
+    ) -> Result<U256, String> {
         let block_gas_limit = match Self::get_block_gas_limit(provider.clone()).await {
             Ok(limit) => {
                 println!("[DEBUG] 获取到区块gas limit: {limit}");
@@ -855,24 +869,16 @@ format_wei_to_ether(total_needed),
             }
             Err(e) => {
                 println!("[WARN] 获取区块gas limit失败: {e}, 使用默认上限");
-                U256::from(30_000_000) // 使用一个合理的默认上限
+                U256::from(30_000_000)
             }
         };
-        
-        // 计算区块gas limit的80%作为安全上限
+
         let max_safe_gas_limit = block_gas_limit * U256::from(80) / U256::from(100);
         println!("[DEBUG] 区块gas limit安全上限(80%): {max_safe_gas_limit}");
-        
+
         match config.limit_type.as_str() {
             "1" => {
                 // 自动估算Gas Limit
-                let tx = TransactionRequest {
-                    from: Some(from),
-                    to: Some(to.into()),
-                    value: Some(value),
-                    ..Default::default()
-                };
-                
                 let estimated_gas = match provider.estimate_gas(tx).await {
                     Ok(gas) => {
                         let gas = U256::from(gas);
@@ -1892,7 +1898,7 @@ pub struct RecentTransferResult {
 #[tauri::command]
 pub async fn check_wallet_recent_transfers(
     chain: String,
-    private_key: String,
+    private_key: SecureMemory,
     target_address: String,
     start_timestamp: u64,
     coin_type: String,
@@ -1916,7 +1922,7 @@ pub async fn check_wallet_recent_transfers(
 // 内部检查钱包最近转账记录实现
 async fn check_wallet_recent_transfers_internal(
     chain: String,
-    private_key: String,
+    private_key: SecureMemory,
     target_address: String,
     start_timestamp: u64,
     coin_type: String,
@@ -1925,18 +1931,17 @@ async fn check_wallet_recent_transfers_internal(
 ) -> Result<RecentTransferResult, Box<dyn std::error::Error>> {
     // 创建Provider
     let provider = create_provider(&chain, None).await?;
-    
-    // 处理私钥格式
-    let private_key = if private_key.starts_with("0x") || private_key.starts_with("0X") {
-        private_key[2..].to_string()
-    } else {
-        private_key.clone()
-    };
-    
-    // 创建钱包
-    let wallet = private_key.parse::<PrivateKeySigner>().map_err(|e| {
-        format!("私钥格式错误: {e}")
-    })?;
+
+    // 使用 SecureMemory 安全获取私钥并创建钱包
+    let wallet = private_key.use_secret(|key_str| {
+        // 处理私钥格式
+        let private_key = if key_str.starts_with("0x") || key_str.starts_with("0X") {
+            &key_str[2..]
+        } else {
+            key_str
+        };
+        private_key.parse::<PrivateKeySigner>()
+    }).map_err(|e| format!("解密私钥失败: {e}"))??;
     let wallet_address = wallet.address();
     
     // 解析目标地址

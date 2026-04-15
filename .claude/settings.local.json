@@ -16,10 +16,19 @@
       "Bash(cd:*)",
       "Bash(node:*)",
       "Bash(git:*)",
-      "mcp__acp__Bash"
+      "mcp__acp__Bash",
+      "Bash(yarn build)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cargo build)",
+      "Bash(cmd:*)",
+      "Bash(powershell:*)",
+      "Bash(python:*)",
+      "Bash(del:*)",
+      "mcp__MiniMax__web_search",
+      "mcp__web-search-prime__web_search_prime"
     ],
     "deny": [],
     "ask": []
   },
-  "outputStyle": "Default"
+  "outputStyle": "Coding Vibes"
 }

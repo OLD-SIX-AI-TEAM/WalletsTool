@@ -1,6 +1,6 @@
 {
   "productName": "Wallets Tool",
-  "version": "0.4.5",
+  "version": "0.4.28",
   "identifier": "com.ezban.walletstool",
   "build": {
     "beforeDevCommand": "yarn dev",
@@ -14,19 +14,19 @@
       {
         "title": "WalletsTool",
         "label": "main",
-        "width": 350,
-        "height": 750,
+        "width": 686,
+        "height": 110,
         "resizable": false,
         "fullscreen": false,
-        "transparent": false,
+        "transparent": true,
         "decorations": false,
         "alwaysOnTop": false,
         "skipTaskbar": false,
-        "center": true,
-        "minWidth": 330,
-        "minHeight": 730,
+        "center": false,
+        "minWidth": 480,
+        "minHeight": 90,
         "maximized": false,
-        "visible": true,
+        "visible": false,
         "focus": true,
         "url": "/"
       }
@@ -41,6 +41,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
     "copyright": "Copyright © 2025 EzBan. All rights reserved.",
     "publisher": "EzBan",
@@ -78,7 +79,8 @@
       }
     },
     "resources": [
-      "data/*"
+      "data/*",
+      "../public/template/*"
     ],
     "shortDescription": "多链钱包管理工具 - 安全便捷的数字资产管理解决方案",
     "targets": "nsis",
@@ -112,5 +114,18 @@
       }
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUwOEM0RUUzOTg3MkFGQkYKUldTL3IzS1k0MDZNNEhrem5nOURkNS9UZVRZWUs5dWxoc2pMekRQK1lGY3h1OG4wV2Q1alllZU0K",
+      "endpoints": [
+        "https://gh-proxy.com/https://github.com/WalletsTool/WalletsTool/releases/latest/download/latest.json",
+        "https://ghproxy.net/https://github.com/WalletsTool/WalletsTool/releases/latest/download/latest.json",
+        "https://gh-proxy.org/https://github.com/WalletsTool/WalletsTool/releases/latest/download/latest.json",
+        "https://github.com/WalletsTool/WalletsTool/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "quiet"
+      }
+    }
+  }
 }

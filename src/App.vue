@@ -1,10 +1,23 @@
 <script setup name="app">
-import { onMounted, onBeforeMount } from 'vue'
+import { onMounted } from 'vue'
+import { useDatabaseStore } from '@/stores/database'
 
-onBeforeMount(() => {
-})
+const databaseStore = useDatabaseStore()
 
-onMounted(() => {
+const initDatabase = async () => {
+  await databaseStore.checkStatus()
+
+  if (!databaseStore.publicReady) {
+    await databaseStore.initPublicDatabase()
+  }
+
+  // 启动时不再自动提示设置安全数据库密码
+  // 仅在访问钱包管理页面时才按需提示
+}
+
+onMounted(async () => {
+  await initDatabase()
+  // 更新检查已移至 Home 页面，通过 Dock 设置按钮的 badge 提示
 })
 </script>
 
@@ -13,6 +26,3 @@ onMounted(() => {
     <router-view></router-view>
   </Suspense>
 </template>
-
-<style scoped>
-</style>

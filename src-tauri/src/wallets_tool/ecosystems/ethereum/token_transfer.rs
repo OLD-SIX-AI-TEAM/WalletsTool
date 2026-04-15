@@ -10,7 +10,7 @@ use tauri::Emitter;
 use super::transfer::{TransferConfig, TransferItem, TransferResult, TransferUtils, create_provider, create_signer_provider, get_rpc_config, FastTransferResult, get_stop_flag};
 use crate::wallets_tool::ecosystems::ethereum::provider::{ProviderUtils, AlloyProvider};
 use hex;
-use super::alloy_utils::{parse_ether_to_wei_f64, format_wei_to_ether, format_wei_to_gwei, u256_to_f64};
+use super::alloy_utils::{format_wei_to_ether, format_wei_to_gwei, parse_decimal_to_units, u256_to_f64};
 
 
 
@@ -47,11 +47,15 @@ pub struct TokenInfo {
 
 pub struct TokenTransferUtils;
 
+fn address_to_abi_param(address: Address) -> String {
+    format!("{:0>64}", hex::encode(address))
+}
+
 impl TokenTransferUtils {
     pub async fn get_contract_gas_limit(
         config: &TokenTransferConfig,
         provider: Arc<AlloyProvider>,
-        _contract_address: Address,
+        contract_address: Address,
         wallet_address: Address,
         to_address: Address,
         transfer_amount: U256,
@@ -75,8 +79,24 @@ impl TokenTransferUtils {
             error_count_limit: config.error_count_limit,
             window_id: config.window_id.clone(),
         };
-        
-        TransferUtils::get_gas_limit(&transfer_config, provider, wallet_address, to_address, transfer_amount).await
+
+        let method_id = "a9059cbb";
+        let to_param = address_to_abi_param(to_address);
+        let amount_param = format!("{:0>64}", format!("{:x}", transfer_amount));
+        let data = format!("0x{method_id}{to_param}{amount_param}");
+        let input = data
+            .parse::<alloy_primitives::Bytes>()
+            .map_err(|e| format!("解析合约调用数据失败: {e}"))?;
+
+        let estimate_tx = TransactionRequest {
+            from: Some(wallet_address),
+            to: Some(TxKind::Call(contract_address)),
+            input: input.into(),
+            value: Some(U256::from(0)),
+            ..Default::default()
+        };
+
+        TransferUtils::get_gas_limit_for_tx(&transfer_config, provider, estimate_tx, false).await
             .map_err(|e| format!("获取代币合约Gas Limit失败: {e}").into())
     }
 
@@ -86,7 +106,7 @@ impl TokenTransferUtils {
         wallet_address: Address,
     ) -> Result<U256, Box<dyn std::error::Error>> {
         let method_id = "70a08231";
-        let address_param = format!("{:0>64}", &hex::encode(wallet_address)[2..]);
+        let address_param = address_to_abi_param(wallet_address);
         let data = format!("0x{method_id}{address_param}");
         
         let tx = TransactionRequest {
@@ -123,10 +143,22 @@ impl TokenTransferUtils {
         };
         
         let decimals_result = provider.call(tx).await?;
-        let decimals_str = hex::encode(decimals_result);
-        let decimals_hex = decimals_str.trim_start_matches("0x");
-        let decimals = u8::from_str_radix(decimals_hex, 16)
+        if decimals_result.is_empty() {
+            return Err("代币精度返回为空".into());
+        }
+        let decimals_hex_full = hex::encode(&decimals_result);
+        let decimals_hex = if decimals_hex_full.len() > 64 {
+            &decimals_hex_full[decimals_hex_full.len() - 64..]
+        } else {
+            decimals_hex_full.as_str()
+        };
+        let decimals_u256 = U256::from_str_radix(decimals_hex, 16)
             .map_err(|e| format!("解析代币精度失败: {e}"))?;
+        let decimals_u64 = decimals_u256.to::<u64>();
+        if decimals_u64 > u8::MAX as u64 {
+            return Err(format!("代币精度超出范围: {decimals_u64}").into());
+        }
+        let decimals = decimals_u64 as u8;
         
         let symbol_method = "95d89b41";
         let symbol_data = format!("0x{symbol_method}");
@@ -138,9 +170,25 @@ impl TokenTransferUtils {
         };
         
         let symbol_result = provider.call(tx).await?;
-        let symbol_hex = hex::encode(symbol_result);
-        let symbol = hex::decode(symbol_hex.trim_start_matches("0x")).map_err(|e| format!("解析代币符号失败: {e}"))?;
-        let symbol = String::from_utf8(symbol).map_err(|e| format!("代币符号转换失败: {e}"))?;
+        if symbol_result.is_empty() {
+            return Err("代币符号返回为空".into());
+        }
+        let raw = symbol_result.as_ref();
+        let symbol = if raw.len() == 32 {
+            let end = raw.iter().position(|b| *b == 0).unwrap_or(raw.len());
+            String::from_utf8(raw[..end].to_vec()).map_err(|e| format!("代币符号转换失败: {e}"))?
+        } else if raw.len() >= 64 {
+            let len_hex = hex::encode(&raw[32..64]);
+            let len_u256 = U256::from_str_radix(&len_hex, 16)
+                .map_err(|e| format!("解析代币符号长度失败: {e}"))?;
+            let len = len_u256.to::<usize>();
+            if raw.len() < 64 + len {
+                return Err("代币符号返回值长度不足".into());
+            }
+            String::from_utf8(raw[64..64 + len].to_vec()).map_err(|e| format!("代币符号转换失败: {e}"))?
+        } else {
+            return Err("代币符号返回值格式不支持".into());
+        };
         
         Ok((symbol, decimals))
     }
@@ -268,8 +316,16 @@ async fn token_transfer_internal<R: tauri::Runtime>(
     let transfer_amount = match config.transfer_type.as_str() {
         "1" => balance,
         "2" => {
-            let amount = parse_ether_to_wei_f64(config.transfer_amount)?
-                * U256::from(10u64.pow(decimals as u32 - 18));
+            let formatted_amount = format!(
+                "{:.precision$}",
+                config.transfer_amount,
+                precision = config.amount_precision as usize
+            );
+            let amount = parse_decimal_to_units(&formatted_amount, decimals)
+                .map_err(|e| format!("解析转账数量失败: {e}"))?;
+            if amount.is_zero() {
+                return Err("转账数量过小，计算后为0".into());
+            }
             if amount >= balance {
                 return Err("当前余额不足，不做转账操作！".into());
             }
@@ -279,9 +335,11 @@ async fn token_transfer_internal<R: tauri::Runtime>(
             let mut rng = rand::thread_rng();
             let random_amount = rng.gen_range(config.transfer_amount_list[0]..=config.transfer_amount_list[1]);
             let formatted_amount = format!("{:.precision$}", random_amount, precision = config.amount_precision as usize);
-            let precise_amount: f64 = formatted_amount.parse()?;
-            let amount = parse_ether_to_wei_f64(precise_amount)?
-                * U256::from(10u64.pow(decimals as u32 - 18));
+            let amount = parse_decimal_to_units(&formatted_amount, decimals)
+                .map_err(|e| format!("解析转账数量失败: {e}"))?;
+            if amount.is_zero() {
+                return Err("转账数量过小，计算后为0".into());
+            }
             if amount >= balance {
                 return Err("当前余额不足，不做转账操作！".into());
             }
@@ -289,9 +347,7 @@ async fn token_transfer_internal<R: tauri::Runtime>(
         }
         "4" => {
             let balance_ether = balance_wei / 10f64.powi(decimals as i32);
-            let gas_fee_wei = u256_to_f64(gas_price * U256::from(65000));
-            let gas_fee_ether = gas_fee_wei / 1e18;
-            let available_balance = balance_ether - gas_fee_ether;
+            let available_balance = balance_ether;
             
             if available_balance <= config.left_amount_list[1] {
                 return Err(format!("当前可用余额为：{}，无法满足最大剩余数量 {} 要求", available_balance, config.left_amount_list[1]).into());
@@ -306,11 +362,22 @@ async fn token_transfer_internal<R: tauri::Runtime>(
             }
             
             let formatted_amount = format!("{:.precision$}", transfer_amount_f64, precision = config.amount_precision as usize);
-            let precise_amount: f64 = formatted_amount.parse()?;
-            parse_ether_to_wei_f64(precise_amount)? * U256::from(10u64.pow(decimals as u32 - 18))
+            let amount = parse_decimal_to_units(&formatted_amount, decimals)
+                .map_err(|e| format!("解析转账数量失败: {e}"))?;
+            if amount.is_zero() {
+                return Err("转账数量过小，计算后为0".into());
+            }
+            if amount > balance {
+                return Err("当前余额不足，不做转账操作！".into());
+            }
+            amount
         }
         _ => return Err("无效的转账类型".into()),
     };
+
+    if transfer_amount.is_zero() {
+        return Err("转账数量为0，不做转账操作！".into());
+    }
     
     let gas_limit = TokenTransferUtils::get_contract_gas_limit(&config, provider.clone(), contract_address, wallet_address, to_address, transfer_amount).await?;
     let actual_gas_fee = gas_price * gas_limit;
@@ -325,7 +392,7 @@ async fn token_transfer_internal<R: tauri::Runtime>(
     }));
     
     let method_id = "a9059cbb";
-    let to_param = format!("{:0>64}", &hex::encode(to_address)[2..]);
+    let to_param = address_to_abi_param(to_address);
     let amount_param = format!("{:0>64}", format!("{:x}", transfer_amount));
     let data = format!("0x{method_id}{to_param}{amount_param}");
     
@@ -417,6 +484,25 @@ pub async fn get_token_info(
         decimals,
         balance: format!("{balance_tokens:.6}"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_address_to_abi_param_keeps_full_address() {
+        let address: Address = "0x042614ef766f741dcd521035c20246ba9220e73d"
+            .parse()
+            .unwrap();
+        let param = address_to_abi_param(address);
+        assert_eq!(param.len(), 64);
+        assert!(param[..24].chars().all(|c| c == '0'));
+        assert_eq!(
+            &param[24..],
+            "042614ef766f741dcd521035c20246ba9220e73d"
+        );
+    }
 }
 
 #[tauri::command]
@@ -557,8 +643,16 @@ async fn token_transfer_fast_internal<R: tauri::Runtime>(
     let transfer_amount = match config.transfer_type.as_str() {
         "1" => balance,
         "2" => {
-            let amount = parse_ether_to_wei_f64(config.transfer_amount)?
-                * U256::from(10u64.pow(decimals as u32 - 18));
+            let formatted_amount = format!(
+                "{:.precision$}",
+                config.transfer_amount,
+                precision = config.amount_precision as usize
+            );
+            let amount = parse_decimal_to_units(&formatted_amount, decimals)
+                .map_err(|e| format!("解析转账数量失败: {e}"))?;
+            if amount.is_zero() {
+                return Err("转账数量过小，计算后为0".into());
+            }
             if amount >= balance {
                 return Err("当前余额不足，不做转账操作！".into());
             }
@@ -568,9 +662,11 @@ async fn token_transfer_fast_internal<R: tauri::Runtime>(
             let mut rng = rand::thread_rng();
             let random_amount = rng.gen_range(config.transfer_amount_list[0]..=config.transfer_amount_list[1]);
             let formatted_amount = format!("{:.precision$}", random_amount, precision = config.amount_precision as usize);
-            let precise_amount: f64 = formatted_amount.parse()?;
-            let amount = parse_ether_to_wei_f64(precise_amount)?
-                * U256::from(10u64.pow(decimals as u32 - 18));
+            let amount = parse_decimal_to_units(&formatted_amount, decimals)
+                .map_err(|e| format!("解析转账数量失败: {e}"))?;
+            if amount.is_zero() {
+                return Err("转账数量过小，计算后为0".into());
+            }
             if amount >= balance {
                 return Err("当前余额不足，不做转账操作！".into());
             }
@@ -578,9 +674,7 @@ async fn token_transfer_fast_internal<R: tauri::Runtime>(
         }
         "4" => {
             let balance_ether = balance_wei / 10f64.powi(decimals as i32);
-            let gas_fee_wei = u256_to_f64(gas_price * U256::from(65000));
-            let gas_fee_ether = gas_fee_wei / 1e18;
-            let available_balance = balance_ether - gas_fee_ether;
+            let available_balance = balance_ether;
             
             if available_balance <= config.left_amount_list[1] {
                 return Err(format!("当前可用余额为：{}，无法满足最大剩余数量 {} 要求", available_balance, config.left_amount_list[1]).into());
@@ -595,11 +689,22 @@ async fn token_transfer_fast_internal<R: tauri::Runtime>(
             }
             
             let formatted_amount = format!("{:.precision$}", transfer_amount_f64, precision = config.amount_precision as usize);
-            let precise_amount: f64 = formatted_amount.parse()?;
-            parse_ether_to_wei_f64(precise_amount)? * U256::from(10u64.pow(decimals as u32 - 18))
+            let amount = parse_decimal_to_units(&formatted_amount, decimals)
+                .map_err(|e| format!("解析转账数量失败: {e}"))?;
+            if amount.is_zero() {
+                return Err("转账数量过小，计算后为0".into());
+            }
+            if amount > balance {
+                return Err("当前余额不足，不做转账操作！".into());
+            }
+            amount
         }
         _ => return Err("无效的转账类型".into()),
     };
+
+    if transfer_amount.is_zero() {
+        return Err("转账数量为0，不做转账操作！".into());
+    }
     
     // 检查停止状态
     if !window_id.is_empty() && get_stop_flag(window_id) {
@@ -615,7 +720,7 @@ async fn token_transfer_fast_internal<R: tauri::Runtime>(
     }));
     
     let method_id = "a9059cbb";
-    let to_param = format!("{:0>64}", &hex::encode(to_address)[2..]);
+    let to_param = address_to_abi_param(to_address);
     let amount_param = format!("{:0>64}", format!("{:x}", transfer_amount));
     let data = format!("0x{method_id}{to_param}{amount_param}");
     

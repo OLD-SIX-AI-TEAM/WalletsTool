@@ -38,3 +38,9 @@ scripts/wallets.txt
 *.pyc
 __pycache__/
 /target/
+
+# Database files - contains sensitive wallet data
+src-tauri/data/*.db
+src-tauri/data/*.db-journal
+src-tauri/data/*.db-wal
+src-tauri/data/*.db-shm
