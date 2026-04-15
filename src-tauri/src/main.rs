@@ -69,6 +69,59 @@ async fn show_main_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     Ok(())
 }
 
+// 辅助函数：确保窗口位置在可见屏幕范围内
+fn ensure_window_visible(
+    window_x: f64,
+    window_y: f64,
+    window_width: f64,
+    window_height: f64,
+    monitor: &tauri::Monitor,
+) -> (f64, f64) {
+    let monitor_size = monitor.size();
+    let monitor_position = monitor.position();
+
+    // 计算显示器的边界（考虑缩放因子）
+    let scale_factor = monitor.scale_factor();
+    let monitor_left = monitor_position.x as f64;
+    let monitor_top = monitor_position.y as f64;
+    let monitor_right = monitor_left + (monitor_size.width as f64 / scale_factor);
+    let monitor_bottom = monitor_top + (monitor_size.height as f64 / scale_factor);
+
+    // 确保窗口至少有100px可见在水平方向
+    let min_visible_width = 100.0;
+    let mut final_x = window_x;
+    let mut final_y = window_y;
+
+    // 水平边界检查
+    if window_x + window_width < monitor_left + min_visible_width {
+        // 窗口完全在显示器左侧外
+        final_x = monitor_left + 10.0;
+    } else if window_x > monitor_right - min_visible_width {
+        // 窗口完全在显示器右侧外
+        final_x = monitor_right - window_width - 10.0;
+    }
+
+    // 垂直边界检查 - 确保窗口标题栏可见
+    let min_visible_height = 30.0;
+    if window_y + window_height < monitor_top + min_visible_height {
+        // 窗口完全在显示器上方外
+        final_y = monitor_top + 10.0;
+    } else if window_y > monitor_bottom - min_visible_height {
+        // 窗口完全在显示器下方外
+        final_y = monitor_bottom - window_height - 10.0;
+    }
+
+    // 额外安全检查：确保不会变成负数或极大值
+    if final_x < -10000.0 || final_x > 10000.0 {
+        final_x = monitor_left + 10.0;
+    }
+    if final_y < -10000.0 || final_y > 10000.0 {
+        final_y = monitor_top + 10.0;
+    }
+
+    (final_x, final_y)
+}
+
 // Tauri 命令：根据dock items数量自动设置主窗口大小和位置
 #[tauri::command]
 async fn set_main_window_size_for_dock<R: Runtime>(app: AppHandle<R>, item_count: u32) -> Result<(), String> {
@@ -120,16 +173,27 @@ async fn set_main_window_size_for_dock<R: Runtime>(app: AppHandle<R>, item_count
         if let Ok(Some(monitor)) = window.primary_monitor() {
             let monitor_size = monitor.size();
             let monitor_position = monitor.position();
+            let scale_factor = monitor.scale_factor();
 
             // 计算窗口位置：水平居中，垂直位于屏幕底部上方
-            let window_x = monitor_position.x as f64 + (monitor_size.width as f64 - total_width as f64) / 2.0;
+            let raw_window_x = monitor_position.x as f64 + (monitor_size.width as f64 / scale_factor - total_width as f64) / 2.0;
             // 距离屏幕底部60px（留出任务栏空间，避免重叠）
             let taskbar_offset = 60u32;
-            let window_y = monitor_position.y as f64 + monitor_size.height as f64 - total_height as f64 - taskbar_offset as f64;
+            let raw_window_y = monitor_position.y as f64 + (monitor_size.height as f64 / scale_factor) - total_height as f64 - taskbar_offset as f64;
 
-            println!("[set_main_window_position] monitor_size={}x{}, position=({}, {}), window_position=({}, {})",
-                monitor_size.width, monitor_size.height,
+            // 确保窗口位置在可见范围内
+            let (window_x, window_y) = ensure_window_visible(
+                raw_window_x,
+                raw_window_y,
+                total_width as f64,
+                total_height as f64,
+                &monitor,
+            );
+
+            println!("[set_main_window_position] monitor_size={}x{}, scale={}, position=({}, {}), raw=({}, {}), final=({}, {})",
+                monitor_size.width, monitor_size.height, scale_factor,
                 monitor_position.x, monitor_position.y,
+                raw_window_x, raw_window_y,
                 window_x, window_y);
 
             window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
@@ -332,13 +396,24 @@ async fn main() {
                 if let Ok(Some(monitor)) = window.primary_monitor() {
                     let monitor_size = monitor.size();
                     let monitor_position = monitor.position();
+                    let scale_factor = monitor.scale_factor();
 
-                    let window_x = monitor_position.x as f64 + (monitor_size.width as f64 - total_width as f64) / 2.0;
+                    let raw_window_x = monitor_position.x as f64 + (monitor_size.width as f64 / scale_factor - total_width as f64) / 2.0;
                     // 距离屏幕底部60px（留出任务栏空间，避免重叠）
                     let taskbar_offset = 60u32;
-                    let window_y = monitor_position.y as f64 + monitor_size.height as f64 - total_height as f64 - taskbar_offset as f64;
+                    let raw_window_y = monitor_position.y as f64 + (monitor_size.height as f64 / scale_factor) - total_height as f64 - taskbar_offset as f64;
 
-                    println!("[setup] Setting initial window position: ({}, {})", window_x, window_y);
+                    // 确保窗口位置在可见范围内
+                    let (window_x, window_y) = ensure_window_visible(
+                        raw_window_x,
+                        raw_window_y,
+                        total_width as f64,
+                        total_height as f64,
+                        &monitor,
+                    );
+
+                    println!("[setup] Setting initial window position: raw=({}, {}), final=({}, {})",
+                        raw_window_x, raw_window_y, window_x, window_y);
 
                     if let Err(e) = window.set_position(tauri::Position::Logical(tauri::LogicalPosition {
                         x: window_x,
