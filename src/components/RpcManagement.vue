@@ -742,6 +742,7 @@ async function batchTestAllRpc() {
         rpcManageData.value[index] = {
           ...rpcManageData.value[index],
           response_time: null,
+          success_rate: 0,
           testing: false
         }
       }

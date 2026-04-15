@@ -1149,11 +1149,6 @@ const switchEcosystem = (targetEco) => {
   scrollbar-width: none !important;
 }
 
-.arco-dropdown .arco-dropdown-list {
-  -ms-overflow-style: none !important;
-  scrollbar-width: none !important;
-}
-
 .arco-dropdown .arco-dropdown-option {
   padding: 3px 10px !important;
   border-radius: 6px !important;
