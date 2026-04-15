@@ -23,7 +23,9 @@
       "Bash(cmd:*)",
       "Bash(powershell:*)",
       "Bash(python:*)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "mcp__MiniMax__web_search",
+      "mcp__web-search-prime__web_search_prime"
     ],
     "deny": [],
     "ask": []

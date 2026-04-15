@@ -1941,7 +1941,6 @@ function handleSystemImportConfirm(payload) {
         <a-dropdown>
           <div class="status-settings-btn" title="设置"><Icon icon="mdi:cog" style="font-size: 15px" /></div>
           <template #content>
-            <a-doption @click="toggleChainSelector"><template #icon><Icon icon="mdi:swap-horizontal" /></template>重新选择区块链</a-doption>
             <a-doption @click="showTokenManage" :disabled="!chainValue"><template #icon><Icon icon="mdi:coin" /></template>代币管理</a-doption>
             <a-doption @click="showRpcManage" :disabled="!chainValue"><template #icon><Icon icon="mdi:link" /></template>RPC管理</a-doption>
             <a-doption @click="showChainManage"><template #icon><Icon icon="mdi:web" /></template>区块链管理</a-doption>
@@ -1960,6 +1959,12 @@ function handleSystemImportConfirm(payload) {
 .container::-webkit-scrollbar { display: none; }
 .container { -ms-overflow-style: none; scrollbar-width: none; }
 :deep(.arco-dropdown-option-content) { display: flex; align-items: center; }
+:deep(.arco-dropdown) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown-list) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown ::-webkit-scrollbar) { display: none !important; width: 0 !important; height: 0 !important; }
+:deep(.arco-trigger-content) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-trigger-popup) { overflow: visible !important; max-height: none !important; }
+:deep(.arco-dropdown-wrapper) { overflow: visible !important; max-height: none !important; }
 .main-content { flex: 1; display: flex; overflow: visible; position: relative; }
 .left-panel { flex: 1; display: flex; flex-direction: column; overflow: visible; min-width: 0; }
 .table-section { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }

@@ -640,42 +640,51 @@ async function testRpcConnection(record) {
   if (index === -1) return
 
   try {
-    // 设置测试状态
-    rpcManageData.value[index].testing = true
-    
+    // 设置测试状态 - 使用 Vue 响应式更新方式
+    rpcManageData.value[index] = { ...rpcManageData.value[index], testing: true }
+
     console.log('开始测试RPC连接:', record.rpc_url)
-    
+
     let result;
     // 判断是否为Solana链，优先使用ecosystem字段判断
     const currentChain = props.chainOptions.find(c => c.key === props.chainValue);
     const isSolana = currentChain?.ecosystem === 'solana' || (props.chainValue && props.chainValue.toLowerCase().includes('sol'));
-    
+
     if (isSolana) {
       result = await invoke('test_solana_rpc_connection', { rpcUrl: record.rpc_url });
     } else {
       result = await invoke('test_rpc_connection', { rpcUrl: record.rpc_url, chainKey: props.chainValue });
     }
-    
+
     console.log('RPC测试结果:', result)
-    
+
     if (result.success) {
       Notification.success({ content: `测试成功: ${result.response_time_ms}ms`, position: 'topLeft' })
-      // 更新响应时间
-      rpcManageData.value[index].response_time = result.response_time_ms
-      // 如果没有成功率数据，暂时设为 100
-      if (rpcManageData.value[index].success_rate === undefined || rpcManageData.value[index].success_rate === null) {
-        rpcManageData.value[index].success_rate = 100
+      // 更新响应时间 - 使用 Vue 响应式更新方式
+      rpcManageData.value[index] = {
+        ...rpcManageData.value[index],
+        response_time: result.response_time_ms,
+        success_rate: 100,
+        testing: false
       }
     } else {
       Notification.error({ content: `测试失败`, position: 'topLeft' })
-      rpcManageData.value[index].response_time = null
+      rpcManageData.value[index] = {
+        ...rpcManageData.value[index],
+        response_time: result.response_time_ms,
+        success_rate: 0,
+        testing: false
+      }
     }
   } catch (error) {
     console.error('RPC测试失败:', error)
     Notification.error({ content: '测试出错: ' + (error.message || error), position: 'topLeft' })
-    rpcManageData.value[index].response_time = null
-  } finally {
-    rpcManageData.value[index].testing = false
+    rpcManageData.value[index] = {
+      ...rpcManageData.value[index],
+      response_time: null,
+      success_rate: 0,
+      testing: false
+    }
   }
 }
 
@@ -689,41 +698,52 @@ async function batchTestAllRpc() {
   try {
     batchTesting.value = true
     console.log('开始批量测试RPC节点，总数:', rpcManageData.value.length)
-    
+
     // 并发测试所有RPC
     const testPromises = rpcManageData.value.map(async (item, index) => {
       // 跳过已经在测试中的
       if (item.testing) return
 
       try {
-        rpcManageData.value[index].testing = true
+        // 使用 Vue 的响应式更新方式
+        rpcManageData.value[index] = { ...rpcManageData.value[index], testing: true }
         console.log('测试RPC:', item.rpc_url)
-        
+
         let result;
         const currentChain = props.chainOptions.find(c => c.key === props.chainValue);
         const isSolana = currentChain?.ecosystem === 'solana' || (props.chainValue && props.chainValue.toLowerCase().includes('sol'));
-        
+
         if (isSolana) {
           result = await invoke('test_solana_rpc_connection', { rpcUrl: item.rpc_url });
         } else {
           result = await invoke('test_rpc_connection', { rpcUrl: item.rpc_url, chainKey: props.chainValue });
         }
 
-        
+        console.log(`[RPC测试结果] ${item.rpc_url}:`, result);
+
         if (result.success) {
-          rpcManageData.value[index].response_time = result.response_time_ms
-          // 如果没有成功率数据，暂时设为 100，给用户正向反馈
-          if (rpcManageData.value[index].success_rate === undefined || rpcManageData.value[index].success_rate === null) {
-            rpcManageData.value[index].success_rate = 100
+          // 使用 Vue 的响应式更新方式替换整个对象
+          rpcManageData.value[index] = {
+            ...rpcManageData.value[index],
+            response_time: result.response_time_ms,
+            success_rate: 100,
+            testing: false
           }
         } else {
-          rpcManageData.value[index].response_time = null
+          rpcManageData.value[index] = {
+            ...rpcManageData.value[index],
+            response_time: result.response_time_ms,
+            success_rate: 0,
+            testing: false
+          }
         }
       } catch (error) {
         console.error('RPC测试失败:', item.rpc_url, error)
-        rpcManageData.value[index].response_time = null
-      } finally {
-        rpcManageData.value[index].testing = false
+        rpcManageData.value[index] = {
+          ...rpcManageData.value[index],
+          response_time: null,
+          testing: false
+        }
       }
     })
 
@@ -959,5 +979,24 @@ defineExpose({
 /* 调整表格内开关和按钮的垂直对齐 */
 :deep(.arco-table-cell) {
   vertical-align: middle;
+}
+
+/* 修复按钮 loading 状态导致行高抖动的问题 */
+:deep(.arco-btn-text) {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 0 4px;
+}
+
+:deep(.arco-btn-text.arco-btn-loading) {
+  min-height: 32px;
+  min-width: 32px;
+  padding: 0 4px;
+}
+
+:deep(.arco-btn-text .arco-btn-icon) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 </style>

@@ -1126,12 +1126,32 @@ const switchEcosystem = (targetEco) => {
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   backdrop-filter: blur(20px) !important;
   background: linear-gradient(145deg, rgba(30, 35, 48, 0.95) 0%, rgba(20, 24, 35, 0.98) 100%) !important;
+  overflow: visible !important;
 }
 
 .arco-dropdown .arco-dropdown-list {
   display: flex !important;
   flex-direction: column !important;
   gap: 2px !important;
+  overflow: visible !important;
+  max-height: none !important;
+}
+
+/* 隐藏下拉菜单滚动条 */
+.arco-dropdown ::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.arco-dropdown {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+.arco-dropdown .arco-dropdown-list {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
 }
 
 .arco-dropdown .arco-dropdown-option {
@@ -1156,6 +1176,7 @@ const switchEcosystem = (targetEco) => {
   background: linear-gradient(145deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.95) 100%) !important;
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.02) !important;
+  overflow: visible !important;
 }
 
 :root[data-theme="light"] .arco-dropdown .arco-dropdown-option:hover {
