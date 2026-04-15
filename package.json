@@ -1,7 +1,7 @@
 {
   "name": "wallets_tool",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.5.1",
   "type": "module",
   "scripts": {
     "start": "node scripts/install-deps.cjs && yarn tauri-dev",
