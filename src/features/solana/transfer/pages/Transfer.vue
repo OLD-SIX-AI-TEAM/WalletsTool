@@ -1018,6 +1018,17 @@ function quickValidateData() {
     const item = data.value[i];
     if (!item.private_key || !item.to_addr) { isValid = false; reason = '存在私钥或地址为空的数据'; break; }
     if (form.send_type === '2' && form.amount_from === '1' && !item.amount) { isValid = false; reason = '存在转账金额为空的数据'; break; }
+    // 剩余随机模式需要检查余额是否已查询
+    if (form.send_type === '4') {
+      const isToken = currentCoin.value && currentCoin.value.coin_type === 'token';
+      const balanceField = isToken ? 'coin_balance' : 'plat_balance';
+      const balanceType = isToken ? '代币' : '平台币';
+      if (!item[balanceField] || item[balanceField] === '' || item[balanceField] === '0') {
+        isValid = false;
+        reason = `剩余随机模式需要查询${balanceType}余额，请先执行余额查询`;
+        break;
+      }
+    }
   }
   dataValidationCache.value = { lastDataLength: currentDataLength, lastFormState: currentFormState, isValid, invalidReason: reason, cacheTime: currentTime };
   return { isValid, reason };
@@ -1060,7 +1071,17 @@ function startTransfer() {
   const performValidationAndStart = () => {
     try {
       const quickValidation = quickValidateData();
-      if (!quickValidation.isValid) { startLoading.value = false; Notification.warning(quickValidation.reason === '存在私钥或地址为空的数据' ? '请检查是否所有私钥都有对应的转账地址！' : '包含转账金额为空的错误数据请核实！'); return; }
+      if (!quickValidation.isValid) {
+        startLoading.value = false;
+        let errorMsg = '包含转账金额为空的错误数据请核实！';
+        if (quickValidation.reason === '存在私钥或地址为空的数据') {
+          errorMsg = '请检查是否所有私钥都有对应的转账地址！';
+        } else if (quickValidation.reason && quickValidation.reason.includes('请先执行余额查询')) {
+          errorMsg = quickValidation.reason;
+        }
+        Notification.warning({ content: errorMsg, position: 'topLeft' });
+        return;
+      }
       let hasIncompleteTransfers = hasExecutedTransfer.value && !transferSessionCompleted.value;
       if (hasIncompleteTransfers && stopStatus.value) { startLoading.value = false; transferConfirmVisible.value = true; }
       else { executeTransfer(data.value, true); }

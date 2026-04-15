@@ -77,7 +77,37 @@ pub async fn sol_transfer(
 
     if input_amount < 0.0 {
         // Send All Logic
-        let balance = client.get_balance(&keypair.pubkey()).await.map_err(|e| e.to_string())?;
+        // 查询余额（带重试机制）
+        let mut retry_count = 0;
+        let max_retries = 3;
+        let mut balance_result: Option<u64> = None;
+        let mut last_error = String::new();
+        
+        while retry_count < max_retries && balance_result.is_none() {
+            if retry_count > 0 {
+                eprintln!("[DEBUG sol_transfer] Retrying balance query (attempt {}/{})", retry_count + 1, max_retries);
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+            
+            match client.get_balance(&keypair.pubkey()).await {
+                Ok(balance) => {
+                    if balance > 0 {
+                        balance_result = Some(balance);
+                    } else {
+                        last_error = "余额为0".to_string();
+                    }
+                },
+                Err(e) => {
+                    last_error = format!("RPC查询失败: {}", e);
+                    eprintln!("[DEBUG sol_transfer] get_balance failed (attempt {}): {}", retry_count + 1, e);
+                }
+            }
+            retry_count += 1;
+        }
+        
+        let balance = balance_result.ok_or_else(|| {
+            format!("查询余额失败（已重试{}次），最后错误: {}", max_retries, last_error)
+        })?;
         
         let base_fee = 5000;
         let mut priority_fee = 0;
@@ -157,6 +187,10 @@ pub async fn sol_token_transfer(
         config.transfer_amount
     };
     
+    // Debug log to help diagnose amount issues
+    eprintln!("[DEBUG sol_token_transfer] item.amount: {:?}, config.transfer_amount: {}, amount_val: {}", 
+              item.amount, config.transfer_amount, amount_val);
+    
     let decimals = {
         // 自动获取代币精度 (忽略 config.amount_precision，因为它通常是前端UI的随机数保留位数，而非Token精度)
         let account_info = client.get_account(&mint).await.map_err(|e| format!("无法获取代币信息: {e}"))?;
@@ -173,31 +207,88 @@ pub async fn sol_token_transfer(
 
     let amount_u64 = if amount_val < 0.0 {
         // Send All Logic for Token
-        // 查询ATA余额
+        // 查询ATA余额（带重试机制）
         let from_ata = get_associated_token_address(&keypair.pubkey(), &mint);
-        match client.get_token_account_balance(&from_ata).await {
-            Ok(balance_res) => {
-                 // 优先使用 amount 字段（原始u64字符串），如果不存在则尝试从 uiAmount 计算（不推荐，有精度风险）
-                 if !balance_res.amount.is_empty() {
-                     balance_res.amount.parse::<u64>().unwrap_or(0)
-                 } else if let Some(ui_amt) = balance_res.ui_amount {
-                     (ui_amt * 10f64.powi(decimals as i32)) as u64
-                 } else {
-                     0
-                 }
-            },
-            Err(_) => 0,
+        eprintln!("[DEBUG sol_token_transfer] Send All mode - from_ata: {}, decimals: {}", from_ata, decimals);
+        
+        // 重试查询余额，最多3次
+        let mut retry_count = 0;
+        let max_retries = 3;
+        let mut last_error = String::new();
+        let mut balance_result: Option<u64> = None;
+        
+        while retry_count < max_retries && balance_result.is_none() {
+            if retry_count > 0 {
+                eprintln!("[DEBUG sol_token_transfer] Retrying balance query (attempt {}/{})", retry_count + 1, max_retries);
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            }
+            
+            match client.get_token_account_balance(&from_ata).await {
+                Ok(balance_res) => {
+                    eprintln!("[DEBUG sol_token_transfer] balance_res.amount: '{}', ui_amount: {:?}", 
+                              balance_res.amount, balance_res.ui_amount);
+                    // 优先使用 amount 字段（原始u64字符串），如果不存在则尝试从 uiAmount 计算（不推荐，有精度风险）
+                    if !balance_res.amount.is_empty() {
+                        if let Ok(amount) = balance_res.amount.parse::<u64>() {
+                            if amount > 0 {
+                                balance_result = Some(amount);
+                            } else {
+                                last_error = "余额为0".to_string();
+                            }
+                        } else {
+                            last_error = "解析余额失败".to_string();
+                        }
+                    } else if let Some(ui_amt) = balance_res.ui_amount {
+                        let calculated = (ui_amt * 10f64.powi(decimals as i32)) as u64;
+                        if calculated > 0 {
+                            balance_result = Some(calculated);
+                        } else {
+                            last_error = "ui_amount计算结果为0".to_string();
+                        }
+                    } else {
+                        last_error = "余额数据为空".to_string();
+                        eprintln!("[DEBUG sol_token_transfer] Both amount and ui_amount are empty!");
+                    }
+                },
+                Err(e) => {
+                    last_error = format!("RPC查询失败: {}", e);
+                    eprintln!("[DEBUG sol_token_transfer] get_token_account_balance failed (attempt {}): {}", retry_count + 1, e);
+                },
+            }
+            retry_count += 1;
+        }
+        
+        match balance_result {
+            Some(amount) => amount,
+            None => {
+                eprintln!("[DEBUG sol_token_transfer] All {} balance query attempts failed, last error: {}", max_retries, last_error);
+                0
+            }
         }
     } else {
-        (amount_val * 10f64.powi(decimals as i32)) as u64
+        let calculated = (amount_val * 10f64.powi(decimals as i32)) as u64;
+        eprintln!("[DEBUG sol_token_transfer] Normal mode - amount_val: {}, decimals: {}, calculated: {}", 
+                  amount_val, decimals, calculated);
+        calculated
     };
     
     // 检查金额是否为 0
     if amount_u64 == 0 {
+        let error_msg = if amount_val < 0.0 {
+            // Send All 模式下 amount_u64 为 0 的可能原因：
+            // 1. 用户 ATA 账户不存在（没有代币余额）
+            // 2. RPC 查询失败
+            "转账金额为 0：请确认钱包已持有该代币且ATA账户已创建".to_string()
+        } else if amount_val == 0.0 {
+            "转账金额不能为 0：请检查转账金额设置".to_string()
+        } else {
+            format!("转账金额计算结果为 0：amount_val={}, decimals={}", amount_val, decimals)
+        };
+        eprintln!("[DEBUG sol_token_transfer] amount_u64 is 0, error_msg: {}", error_msg);
         return Ok(TransferResult { 
             success: false, 
             tx_hash: None, 
-            error: Some("转账金额不能为 0".to_string()) 
+            error: Some(error_msg)
         });
     }
 
