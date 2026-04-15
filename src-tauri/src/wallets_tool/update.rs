@@ -1,6 +1,8 @@
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use tauri::{command, AppHandle, Runtime};
+use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
 use tokio::time::{timeout, Duration};
 
@@ -17,6 +19,12 @@ const REQUEST_TIMEOUT_SECS: u64 = 3;
 const TOTAL_TIMEOUT_SECS: u64 = 5;
 
 #[derive(Debug, Deserialize, Clone)]
+struct GitHubReleaseAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 struct GitHubRelease {
     tag_name: String,
     html_url: String,
@@ -25,6 +33,7 @@ struct GitHubRelease {
     draft: bool,
     prerelease: bool,
     published_at: Option<String>,
+    assets: Vec<GitHubReleaseAsset>,
 }
 
 #[derive(Debug, Serialize)]
@@ -36,6 +45,7 @@ pub struct GithubReleaseUpdateInfo {
     pub body: Option<String>,
     pub published_at: Option<String>,
     pub prerelease: bool,
+    pub installer_url: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -242,6 +252,47 @@ async fn fetch_github_release_parallel(
     ))
 }
 
+/// 根据当前平台获取对应的安装包文件名模式
+fn get_platform_installer_pattern() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: .msi 或 .exe
+        ".msi"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: .dmg 或 .app.tar.gz
+        ".dmg"
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Linux: .AppImage 或 .deb
+        ".AppImage"
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        ""
+    }
+}
+
+/// 从 Release assets 中找到适合当前平台的安装包
+fn find_platform_installer(assets: &[GitHubReleaseAsset]) -> Option<String> {
+    let pattern = get_platform_installer_pattern();
+    if pattern.is_empty() {
+        return None;
+    }
+
+    // 优先查找包含平台标识的安装包
+    for asset in assets {
+        let name_lower = asset.name.to_lowercase();
+        if name_lower.ends_with(pattern) {
+            return Some(asset.browser_download_url.clone());
+        }
+    }
+
+    None
+}
+
 #[command]
 pub async fn check_github_release_update(
     owner: Option<String>,
@@ -301,6 +352,20 @@ pub async fn check_github_release_update(
         release.html_url
     };
 
+    // 查找适合当前平台的安装包
+    let installer_url = find_platform_installer(&release.assets).map(|url| {
+        if used_proxy {
+            to_gh_proxy_url(&url)
+        } else {
+            url
+        }
+    });
+
+    println!(
+        "[check_github_release_update] 找到安装包: {:?}",
+        installer_url
+    );
+
     Ok(Some(GithubReleaseUpdateInfo {
         current_version,
         latest_version,
@@ -309,6 +374,7 @@ pub async fn check_github_release_update(
         body: release.body,
         published_at: release.published_at,
         prerelease: release.prerelease,
+        installer_url,
     }))
 }
 
@@ -434,4 +500,155 @@ pub async fn download_update_only<R: Runtime>(
         Ok(None) => Err("没有可用的更新".to_string()),
         Err(e) => Err(format!("检查更新失败: {e}")),
     }
+}
+
+/// 通过 HTTP 下载安装包并执行安装（备用通道使用）
+#[command]
+pub async fn download_and_install_from_url<R: Runtime>(
+    app: AppHandle<R>,
+    url: String,
+) -> Result<String, String> {
+    println!("[download_and_install_from_url] 开始下载安装包: {}", url);
+
+    // 获取临时目录
+    let temp_dir = std::env::temp_dir();
+    let file_name = url
+        .split('/')
+        .last()
+        .unwrap_or("installer.msi")
+        .split('?')
+        .next()
+        .unwrap_or("installer.msi");
+    let file_path = temp_dir.join(file_name);
+
+    println!("[download_and_install_from_url] 下载目标: {:?}", file_path);
+
+    // 创建 HTTP 客户端
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300)) // 5分钟超时
+        .build()
+        .map_err(|e| format!("创建HTTP客户端失败: {e}"))?;
+
+    // 下载文件
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("下载安装包失败: {e}"))?;
+
+    let response = response
+        .error_for_status()
+        .map_err(|e| format!("下载安装包失败: {e}"))?;
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("读取安装包数据失败: {e}"))?;
+
+    println!(
+        "[download_and_install_from_url] 下载完成，大小: {} bytes",
+        bytes.len()
+    );
+
+    // 保存到临时文件
+    tokio::fs::write(&file_path, &bytes)
+        .await
+        .map_err(|e| format!("保存安装包失败: {e}"))?;
+
+    println!("[download_and_install_from_url] 安装包已保存到: {:?}", file_path);
+
+    // 根据平台执行安装
+    #[cfg(target_os = "windows")]
+    {
+        install_windows_msi(app, file_path).await
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        install_macos_dmg(app, file_path).await
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        install_linux_appimage(app, file_path).await
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        Err("不支持的操作系统".to_string())
+    }
+}
+
+#[cfg(target_os = "windows")]
+async fn install_windows_msi<R: Runtime>(
+    app: AppHandle<R>,
+    file_path: PathBuf,
+) -> Result<String, String> {
+    println!("[install_windows_msi] 启动 Windows 安装程序: {:?}", file_path);
+
+    let file_path_str = file_path.to_string_lossy().to_string();
+
+    // 使用 msiexec 静默安装
+    let output = app
+        .shell()
+        .command("msiexec")
+        .args([
+            "/i",
+            &file_path_str,
+            "/passive",      // 被动模式，显示进度但不提示
+            "/norestart",    // 安装完成后不重启
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("启动安装程序失败: {e}"))?;
+
+    if output.status.success() {
+        println!("[install_windows_msi] 安装程序启动成功");
+        Ok("安装程序已启动，安装完成后请手动重启应用".to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("安装失败: {}", stderr))
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn install_macos_dmg<R: Runtime>(
+    _app: AppHandle<R>,
+    file_path: PathBuf,
+) -> Result<String, String> {
+    println!("[install_macos_dmg] macOS 安装: {:?}", file_path);
+
+    // macOS: 打开 DMG 文件，让用户手动安装
+    let file_path_str = file_path.to_string_lossy().to_string();
+
+    std::process::Command::new("open")
+        .arg(&file_path_str)
+        .spawn()
+        .map_err(|e| format!("打开 DMG 文件失败: {e}"))?;
+
+    Ok("安装包已下载并打开，请按照提示完成安装".to_string())
+}
+
+#[cfg(target_os = "linux")]
+async fn install_linux_appimage<R: Runtime>(
+    _app: AppHandle<R>,
+    file_path: PathBuf,
+) -> Result<String, String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    println!("[install_linux_appimage] Linux 安装: {:?}", file_path);
+
+    // Linux: 赋予执行权限并启动
+    let file_path_str = file_path.to_string_lossy().to_string();
+
+    // 赋予执行权限
+    std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o755))
+        .map_err(|e| format!("设置执行权限失败: {e}"))?;
+
+    // 启动 AppImage
+    std::process::Command::new(&file_path_str)
+        .spawn()
+        .map_err(|e| format!("启动 AppImage 失败: {e}"))?;
+
+    Ok("新版本已启动，请完成更新".to_string())
 }

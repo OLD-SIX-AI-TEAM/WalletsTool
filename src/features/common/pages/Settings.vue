@@ -384,6 +384,7 @@ async function checkForUpdate() {
             latest_version: githubResult.latest_version,
             release_notes: githubResult.body,
             download_url: githubResult.html_url,
+            installer_url: githubResult.installer_url,
             published_at: githubResult.published_at
           }
         } else {
@@ -425,7 +426,7 @@ async function checkForUpdate() {
           content: () => h('div', { style: 'max-height: 300px; overflow-y: auto;' }, [
             usedFallback ? h('div', {
               style: 'margin-bottom: 12px; padding: 8px 12px; background: rgba(255, 165, 0, 0.1); border-radius: 4px; font-size: 12px; color: #ff8c00;'
-            }, '⚠️ 通过备用通道检测到更新，建议前往 GitHub 下载最新版本') : null,
+            }, result.installer_url ? '⚠️ 通过备用通道检测到更新，将自动下载安装' : '⚠️ 通过备用通道检测到更新，建议前往 GitHub 下载最新版本') : null,
             h('div', { style: 'margin-bottom: 12px;' }, [
               h('span', { style: 'color: #666;' }, '当前版本: '),
               h('span', { style: 'font-weight: 600; color: #586cc7;' }, result.current_version)
@@ -443,14 +444,17 @@ async function checkForUpdate() {
               }, result.release_notes || '暂无更新说明')
             ])
           ]),
-          okText: usedFallback ? '前往下载' : '下载并安装',
+          okText: usedFallback && !result.installer_url ? '前往下载' : '下载并安装',
           cancelText: '稍后提醒',
           width: 380,
           onOk: async () => {
-            if (usedFallback) {
-              // 备用通道检测到更新，打开浏览器下载页面
+            if (usedFallback && !result.installer_url) {
+              // 备用通道未找到安装包，打开浏览器下载页面
               const { open } = await import('@tauri-apps/plugin-shell')
               await open(result.download_url)
+            } else if (usedFallback && result.installer_url) {
+              // 备用通道找到安装包，直接下载安装
+              await downloadAndInstallFromUrl(result.installer_url)
             } else {
               // 正常使用 Tauri Updater 下载安装
               await downloadAndInstallUpdate()
@@ -496,6 +500,29 @@ async function downloadAndInstallUpdate() {
     if (isTauri) await relaunch()
   } catch (error) {
     console.error('下载更新失败:', error)
+    const errorText = typeof error === 'string' ? error : error.message || '未知错误'
+    Notification.error({ title: '下载更新失败', content: errorText, position: 'top' })
+  } finally {
+    updateChecking.value = false
+  }
+}
+
+async function downloadAndInstallFromUrl(url) {
+  try {
+    updateChecking.value = true
+
+    Notification.info({
+      title: '正在下载更新',
+      content: '请稍候，下载完成后将自动安装',
+      position: 'top',
+      duration: 0
+    })
+
+    const result = await invoke('download_and_install_from_url', { url })
+
+    Notification.success({ title: '更新完成', content: result, position: 'top' })
+  } catch (error) {
+    console.error('下载安装更新失败:', error)
     const errorText = typeof error === 'string' ? error : error.message || '未知错误'
     Notification.error({ title: '下载更新失败', content: errorText, position: 'top' })
   } finally {

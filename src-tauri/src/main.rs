@@ -524,6 +524,7 @@ async fn main() {
             wallets_tool::update::check_github_release_update,
             wallets_tool::update::check_update,
             wallets_tool::update::download_and_install_update,
+            wallets_tool::update::download_and_install_from_url,
             wallets_tool::update::download_update_only,
             // fs extra functions
             plugins::fs_extra::exists,
