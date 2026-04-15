@@ -559,13 +559,17 @@ impl SimpleBalanceQueryService {
         let thread_count = params.thread_count.clamp(1, 99); // 限制线程数在1-99之间
         let semaphore = Arc::new(Semaphore::new(thread_count));
 
-        println!("开始批量查询余额，线程数: {}, 总任务数: {}", thread_count, params.items.len());
+        // 使用传入的 window_id，如果没有则使用 "default"
+        let window_id = params.window_id.clone().unwrap_or_else(|| "default".to_string());
+        println!("开始批量查询余额，线程数: {}, 总任务数: {}, window_id: {}", thread_count, params.items.len(), window_id);
 
         let items = params.items.clone();
+        let window_id_for_task = window_id.clone();
         let tasks: Vec<_> = items.into_iter().map(|item| {
             let semaphore = semaphore.clone();
             let params = params.clone();
             let service = self;
+            let wid = window_id_for_task.clone();
 
             async move {
                 let _permit = semaphore.acquire().await.unwrap();
@@ -575,7 +579,7 @@ impl SimpleBalanceQueryService {
                 let delay = Duration::from_millis(50 + (rand::random::<u64>() % 100));
                 sleep(delay).await;
 
-                service.query_single_item(item, &params, "default").await
+                service.query_single_item(item, &params, &wid).await
             }
         }).collect();
 

@@ -1122,7 +1122,7 @@ function handleTransferConfirmClose() {
 
 const { transferFnc, stopTransfer: stopTransferFn, performIntelligentRetry, iterTransfer, iterTransferFuryMode, retryInProgress, retryResults } = useTransfer({
    data, form, chainValue, currentChain, currentCoin, threadCount, enableMultiThread, transferConfig, transferProgress, transferTotal, transferCompleted, showProgress, startLoading, stopFlag, stopStatus, transferStartTime, hasExecutedTransfer, transferSessionCompleted, updateTransferProgress, checkGasPriceForTransfer, startGasPriceMonitoring, stopGasPriceMonitoring, transferPaused, pausedTransferData,
-   validateForm: validateFormFn, quickValidateData, resetDataStatusAsync, clearValidationCache, executeTransfer,
+   validateForm: validateFormFn, quickValidateData, resetDataStatusAsync, clearValidationCache, executeTransfer, windowId: currentWindowId,
 });
 
 const { queryBalance, queryToAddressBalance, stopBalanceQuery, currentQueryId } = useBalanceQuery({

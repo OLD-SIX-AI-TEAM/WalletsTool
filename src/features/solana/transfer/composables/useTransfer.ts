@@ -23,6 +23,7 @@ export function useTransfer(options = {}) {
     transferPaused,
     pausedTransferData,
     executeTransfer,
+    windowId,
   } = options;
 
   const retryInProgress = ref(false);
@@ -222,7 +223,8 @@ export function useTransfer(options = {}) {
                      retry_flag: false
                  }],
                  only_coin_config: true,
-                 thread_count: 1
+                 thread_count: 1,
+                 window_id: windowId?.value || null,
              };
              
              const result = await invoke('query_balances_simple', { params });
