@@ -71,6 +71,42 @@ yarn start
 - **Tauri CLI** >= 2.0.0
 - **Perl** >= 5.30.0 (用于构建依赖) - [下载地址](https://strawberryperl.com/)
 
+### Windows 额外依赖
+
+本项目使用 **SQLCipher** 进行数据库加密，需要 **OpenSSL** 支持：
+
+1. **安装 OpenSSL**
+   - 下载安装 [OpenSSL Light for Windows](https://slproweb.com/products/Win32OpenSSL.html)（选择 Win64 版本）
+   - 建议安装路径：`C:\Program Files\OpenSSL-Win64`
+
+2. **设置环境变量**
+
+   **PowerShell (推荐)**:
+   ```powershell
+   # 临时设置（当前终端会话）
+   $env:OPENSSL_DIR = "C:\Program Files\OpenSSL-Win64"
+   ```
+
+   **系统环境变量 (永久生效)**:
+   ```powershell
+   # 以管理员身份运行 PowerShell
+   [Environment]::SetEnvironmentVariable("OPENSSL_DIR", "C:\Program Files\OpenSSL-Win64", "Machine")
+   ```
+
+   **或者手动设置**:
+   - 打开「系统属性」→「高级」→「环境变量」
+   - 新建系统变量 `OPENSSL_DIR`，值为 `C:\Program Files\OpenSSL-Win64`
+
+3. **验证配置**
+   ```powershell
+   # 检查环境变量是否设置成功
+   echo $env:OPENSSL_DIR
+   # 预期输出: C:\Program Files\OpenSSL-Win64
+   ```
+
+> [!IMPORTANT]
+> 如果看到错误 `Missing environment variable OPENSSL_DIR`，说明环境变量未正确设置。请确保在**新的终端窗口**中运行命令，或重启 IDE/终端以应用更改。
+
 ### 开发命令
 
 ```bash

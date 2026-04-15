@@ -40,11 +40,18 @@ pub struct SolanaProvider {
 
 impl SolanaProvider {
     pub fn new(rpc_url: String) -> Self {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(10))
-            .build()
-            .unwrap_or_else(|_| Client::new());
+        // 尝试使用代理客户端，如果代理未启用则使用默认客户端
+        let client = if let Some(proxy_client) = PROXY_MANAGER.get_random_proxy_client() {
+            println!("[SolanaProvider] 使用代理客户端: {}", rpc_url);
+            proxy_client
+        } else {
+            println!("[SolanaProvider] 代理未启用，使用直连模式: {}", rpc_url);
+            Client::builder()
+                .timeout(Duration::from_secs(30))
+                .connect_timeout(Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| Client::new())
+        };
         Self {
             client,
             rpc_url,

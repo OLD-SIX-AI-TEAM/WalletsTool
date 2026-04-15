@@ -191,6 +191,15 @@ pub async fn sol_token_transfer(
     } else {
         (amount_val * 10f64.powi(decimals as i32)) as u64
     };
+    
+    // 检查金额是否为 0
+    if amount_u64 == 0 {
+        return Ok(TransferResult { 
+            success: false, 
+            tx_hash: None, 
+            error: Some("转账金额不能为 0".to_string()) 
+        });
+    }
 
     let mut instructions = vec![];
     if let Some(fee) = config.gas_price {
