@@ -1,6 +1,6 @@
 {
   "productName": "Wallets Tool",
-  "version": "0.4.28",
+  "version": "0.5.0",
   "identifier": "com.ezban.walletstool",
   "build": {
     "beforeDevCommand": "yarn dev",
