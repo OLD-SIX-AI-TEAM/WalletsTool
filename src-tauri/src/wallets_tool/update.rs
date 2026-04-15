@@ -1,6 +1,6 @@
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{command, AppHandle, Runtime};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_updater::UpdaterExt;
@@ -252,41 +252,43 @@ async fn fetch_github_release_parallel(
     ))
 }
 
-/// 根据当前平台获取对应的安装包文件名模式
-fn get_platform_installer_pattern() -> &'static str {
+/// 根据当前平台获取对应的安装包文件名模式列表
+fn get_platform_installer_patterns() -> &'static [&'static str] {
     #[cfg(target_os = "windows")]
     {
         // Windows: .msi 或 .exe
-        ".msi"
+        &[".msi", ".exe"]
     }
     #[cfg(target_os = "macos")]
     {
-        // macOS: .dmg 或 .app.tar.gz
-        ".dmg"
+        // macOS: .dmg 或 .app.tar.gz (优先匹配 .app.tar.gz)
+        &[".app.tar.gz", ".dmg"]
     }
     #[cfg(target_os = "linux")]
     {
         // Linux: .AppImage 或 .deb
-        ".AppImage"
+        &[".AppImage", ".deb"]
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
-        ""
+        &[]
     }
 }
 
 /// 从 Release assets 中找到适合当前平台的安装包
 fn find_platform_installer(assets: &[GitHubReleaseAsset]) -> Option<String> {
-    let pattern = get_platform_installer_pattern();
-    if pattern.is_empty() {
+    let patterns = get_platform_installer_patterns();
+    if patterns.is_empty() {
         return None;
     }
 
-    // 优先查找包含平台标识的安装包
-    for asset in assets {
-        let name_lower = asset.name.to_lowercase();
-        if name_lower.ends_with(pattern) {
-            return Some(asset.browser_download_url.clone());
+    // 按照模式优先级查找安装包
+    for pattern in patterns {
+        for asset in assets {
+            let name_lower = asset.name.to_lowercase();
+            if name_lower.ends_with(pattern) {
+                return Some(asset.browser_download_url.clone());
+            }
         }
     }
 
@@ -502,6 +504,47 @@ pub async fn download_update_only<R: Runtime>(
     }
 }
 
+/// 验证文件名是否安全（只允许字母数字、点、连字符、下划线）
+fn is_safe_file_name(file_name: &str) -> bool {
+    if file_name.is_empty() || file_name.len() > 255 {
+        return false;
+    }
+    // 检查是否包含路径分隔符或空字符
+    if file_name.contains('/') || file_name.contains('\\') || file_name.contains('\0') {
+        return false;
+    }
+    // 验证只包含允许的字符
+    file_name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+}
+
+/// 从 URL 安全地提取文件名
+fn extract_safe_file_name(url: &str) -> String {
+    // 尝试从 URL 路径中提取文件名
+    let file_name = url
+        .split('?')
+        .next()
+        .unwrap_or(url)
+        .split('/')
+        .last()
+        .unwrap_or("");
+
+    // 使用 Path::file_name() 进一步确保安全
+    let safe_name = Path::new(file_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+
+    // 验证文件名安全性
+    if is_safe_file_name(safe_name) {
+        safe_name.to_string()
+    } else {
+        // 返回默认文件名
+        "installer".to_string()
+    }
+}
+
 /// 通过 HTTP 下载安装包并执行安装（备用通道使用）
 #[command]
 pub async fn download_and_install_from_url<R: Runtime>(
@@ -512,14 +555,31 @@ pub async fn download_and_install_from_url<R: Runtime>(
 
     // 获取临时目录
     let temp_dir = std::env::temp_dir();
-    let file_name = url
-        .split('/')
-        .last()
-        .unwrap_or("installer.msi")
-        .split('?')
-        .next()
-        .unwrap_or("installer.msi");
-    let file_path = temp_dir.join(file_name);
+    let file_name = extract_safe_file_name(&url);
+
+    // 根据平台添加默认扩展名
+    let file_name_with_ext = if file_name.contains('.') {
+        file_name
+    } else {
+        #[cfg(target_os = "windows")]
+        {
+            format!("{}.msi", file_name)
+        }
+        #[cfg(target_os = "macos")]
+        {
+            format!("{}.dmg", file_name)
+        }
+        #[cfg(target_os = "linux")]
+        {
+            format!("{}.AppImage", file_name)
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+        {
+            file_name
+        }
+    };
+
+    let file_path = temp_dir.join(&file_name_with_ext);
 
     println!("[download_and_install_from_url] 下载目标: {:?}", file_path);
 
