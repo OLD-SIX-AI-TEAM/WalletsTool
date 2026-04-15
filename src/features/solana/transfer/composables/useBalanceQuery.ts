@@ -51,15 +51,6 @@ export function useBalanceQuery(options = {}) {
       return;
     }
 
-    const invalidItems = data.value.filter(item => !item.address || item.address.trim() === '');
-    if (invalidItems.length > 0) {
-      Notification.warning({
-        content: `存在 ${invalidItems.length} 条数据的地址为空，请检查数据完整性！`,
-        position: 'topLeft',
-      });
-      return;
-    }
-
     // 重置后端停止标志
     try {
       await invoke('reset_balance_query_stop', { windowId: windowId.value || 'main' });

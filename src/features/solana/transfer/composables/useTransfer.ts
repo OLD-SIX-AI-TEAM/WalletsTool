@@ -181,61 +181,44 @@ export function useTransfer(options = {}) {
   async function ensureBalance(item) {
     if (form.send_type !== '1' && form.send_type !== '4') return;
 
-    const isBase = currentCoin.value.coin_type === 'base';
-    const balanceKey = isBase ? 'plat_balance' : 'coin_balance';
-
     const address = item.address;
     if (!address) return;
 
     try {
-        if (isBase) {
-             const bal = await invoke('query_balance', { 
-                 chain: chainValue.value, 
-                 address: address 
-             });
-             item.plat_balance = bal;
-             const realIndex = data.value.findIndex(d => d.key === item.key);
-             if (realIndex !== -1) {
-                 data.value[realIndex].plat_balance = bal;
-             }
-        } else {
-             // Solana 使用专用的余额查询命令
-             const params = {
-                 chain: chainValue.value,
-                 coin_config: {
-                     coin_type: currentCoin.value.coin_type,
-                     contract_address: currentCoin.value.contract_address || null,
-                     abi: null
-                 },
-                 items: [{
-                     key: item.key,
-                     address: address,
-                     private_key: null,
-                     plat_balance: null,
-                     coin_balance: null,
-                     exec_status: '0',
-                     error_msg: null,
-                     retry_flag: false
-                 }],
-                 window_id: windowId?.value || 'default',
-                 query_id: `ensure_balance_${Date.now()}`,
-             };
-             
-             // 使用 Solana 专用的余额查询命令
-             const result = await invoke('sol_query_balances_with_updates', { params });
-             if (result && result.success && result.items && result.items.length > 0) {
-                 const resItem = result.items[0];
-                 item.coin_balance = resItem.coin_balance;
-                 item.plat_balance = resItem.plat_balance;
-                 const realIndex = data.value.findIndex(d => d.key === item.key);
-                 if (realIndex !== -1) {
-                     data.value[realIndex].coin_balance = resItem.coin_balance;
-                     data.value[realIndex].plat_balance = resItem.plat_balance;
-                 }
-             }
+      const params = {
+        chain: chainValue.value,
+        coin_config: {
+          coin_type: currentCoin.value.coin_type,
+          contract_address: currentCoin.value.contract_address || '',
+          abi: currentCoin.value.abi || '',
+        },
+        items: [{
+          key: item.key,
+          address: address,
+          private_key: item.private_key || '',
+          plat_balance: null,
+          coin_balance: null,
+          exec_status: '0',
+          error_msg: null,
+          retry_flag: false,
+        }],
+        window_id: windowId?.value || 'main',
+        query_id: `ensure_balance_${Date.now()}`,
+      };
+
+      const result = await invoke('sol_query_balances_with_updates', { params });
+      if (result && result.success && result.items && result.items.length > 0) {
+        const resItem = result.items[0];
+        item.coin_balance = resItem.coin_balance;
+        item.plat_balance = resItem.plat_balance;
+        const realIndex = data.value.findIndex(d => d.key === item.key);
+        if (realIndex !== -1) {
+          data.value[realIndex].coin_balance = resItem.coin_balance;
+          data.value[realIndex].plat_balance = resItem.plat_balance;
         }
+      }
     } catch (e) {
-        console.error("自动查询余额失败", e);
+      console.error('自动查询余额失败', e);
     }
   }
 
@@ -824,6 +807,8 @@ export function useTransfer(options = {}) {
         if (stopFlag.value) return;
 
         if (item.exec_status !== '0') continue;
+
+        await ensureBalance(item);
 
         const realIndex = item.realIndex;
         if (realIndex === -1) {

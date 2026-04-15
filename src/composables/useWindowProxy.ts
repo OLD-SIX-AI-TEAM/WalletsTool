@@ -44,6 +44,10 @@ export function useWindowProxy(ecosystem: string) {
       const win = await getCurrentWindow()
       const label = win.label
       const scopedWindowId = getScopedWindowId(label)
+      currentWindowId.value = scopedWindowId
+
+      // 后端全局窗口标签：SolanaProvider / EthereumProvider 的 get_random_proxy_client 依赖此值查找代理
+      await invoke('set_proxy_window_id', { windowId: scopedWindowId })
 
       const config: ProxyConfig = await invoke('get_proxy_config_for_window', { windowId: scopedWindowId })
 

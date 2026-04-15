@@ -1008,7 +1008,9 @@ async function queryBalanceInBatches() {
     
     balanceProgress.value = 1;
     setTimeout(() => { showProgress.value = false; }, 3000);
-    
+
+    processUpdates();
+
     const successCount = data.value.filter(item => item.exec_status === '2').length;
     const failCount = data.value.filter(item => item.exec_status === '3').length;
     

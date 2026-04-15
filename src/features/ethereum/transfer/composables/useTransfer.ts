@@ -25,6 +25,61 @@ export function useTransfer(options = {}) {
     executeTransfer,
   } = options;
 
+  async function ensureBalance(item) {
+    if (form.send_type !== '1' && form.send_type !== '4') return;
+
+    const isBase = currentCoin.value.coin_type === 'base';
+    const address = item.address;
+    if (!address) return;
+
+    try {
+      if (isBase) {
+        const bal = await invoke('query_balance', { chain: chainValue.value, address });
+        item.plat_balance = bal;
+        const realIndex = data.value.findIndex(d => d.key === item.key);
+        if (realIndex !== -1) {
+          data.value[realIndex].plat_balance = bal;
+        }
+      } else {
+        const result = await invoke('query_balances_simple', {
+          params: {
+            chain: chainValue.value,
+            coin_config: {
+              coin_type: currentCoin.value.coin_type,
+              contract_address: currentCoin.value.contract_address || null,
+              abi: currentCoin.value.abi || null,
+            },
+            items: [{
+              key: item.key,
+              address,
+              private_key: null,
+              plat_balance: null,
+              coin_balance: null,
+              nonce: null,
+              exec_status: '0',
+              error_msg: null,
+              retry_flag: false,
+            }],
+            only_coin_config: true,
+            thread_count: 1,
+          },
+        });
+        if (result?.success && result.items?.length > 0) {
+          const resItem = result.items[0];
+          item.coin_balance = resItem.coin_balance;
+          item.plat_balance = resItem.plat_balance;
+          const realIndex = data.value.findIndex(d => d.key === item.key);
+          if (realIndex !== -1) {
+            data.value[realIndex].coin_balance = resItem.coin_balance;
+            data.value[realIndex].plat_balance = resItem.plat_balance;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('自动查询余额失败', e);
+    }
+  }
+
   const retryInProgress = ref(false);
   const retryResults = ref([]);
   const MAX_RETRY_ROUNDS = 3;
@@ -284,6 +339,8 @@ export function useTransfer(options = {}) {
           continue;
         }
 
+        await ensureBalance(item);
+
         if (form.max_gas_price && form.max_gas_price.trim()) {
           const gasPriceOk = await checkGasPriceForTransfer();
           if (!gasPriceOk) {
@@ -518,6 +575,8 @@ export function useTransfer(options = {}) {
           continue;
         }
 
+        await ensureBalance(item);
+
         const realIndex = item.realIndex;
         if (realIndex === -1) {
           console.error('无法找到对应的数据项');
@@ -706,6 +765,8 @@ export function useTransfer(options = {}) {
         if (stopFlag.value) return;
 
         if (item.exec_status !== '0') continue;
+
+        await ensureBalance(item);
 
         const realIndex = item.realIndex;
         if (realIndex === -1) {

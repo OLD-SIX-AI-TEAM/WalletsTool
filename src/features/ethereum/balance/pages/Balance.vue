@@ -1169,6 +1169,8 @@ async function queryBalanceInBatches() {
     }
     
     // 所有批次完成后的统计
+    processUpdates();
+
     const successCount = data.value.filter(item => item.exec_status === '2').length;
     const failCount = data.value.filter(item => item.exec_status === '3').length;
     const totalCount = data.value.length;

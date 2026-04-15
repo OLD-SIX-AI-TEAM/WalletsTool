@@ -330,6 +330,7 @@ function handleTokenSelect(tokenKey) {
   const coin = coinOptions.value.find((c) => c.key === tokenKey);
   if (coin) currentCoin.value = coin;
   tokenSelectorExpanded.value = false;
+  data.value.forEach((item) => { item.plat_balance = ''; item.coin_balance = ''; });
 }
 
 const debouncedFilterUpdate = customDebounce(() => {}, 300);
@@ -647,6 +648,7 @@ function stopGasTimer() {
 }
 
 async function chainChange() {
+  data.value.forEach((item) => { item.plat_balance = ''; item.coin_balance = ''; });
   const chainResult = chainOptions.value.filter((item) => item.key === chainValue.value);
   if (chainResult.length > 0) {
     currentChain.value = chainResult[0];
@@ -870,12 +872,19 @@ function executeTransfer(transferData, resetStatus = true) {
     .catch(() => { startLoading.value = false; });
 }
 
-function startTransfer() {
+async function startTransfer() {
   if (balanceLoading.value) { startLoading.value = false; Notification.warning({ content: '请等待余额查询完成后再执行！', position: 'topLeft' }); return; }
   if (data.value.length === 0) { startLoading.value = false; Notification.warning({ content: '请先导入钱包信息！', position: 'topLeft' }); return; }
   startLoading.value = true;
-  const performValidationAndStart = () => {
+  const performValidationAndStart = async () => {
     try {
+      if ((form.send_type === '1' || form.send_type === '4') && !balanceLoading.value) {
+        await queryBalance();
+        if (balanceStopFlag.value) {
+          startLoading.value = false;
+          return;
+        }
+      }
       const quickValidation = quickValidateData();
       if (!quickValidation.isValid) { startLoading.value = false; Notification.warning(quickValidation.reason === '存在私钥或地址为空的数据' ? '请检查是否所有私钥都有对应的转账地址！' : '包含转账金额为空的错误数据请核实！'); return; }
       let hasIncompleteTransfers = hasExecutedTransfer.value && !transferSessionCompleted.value;
