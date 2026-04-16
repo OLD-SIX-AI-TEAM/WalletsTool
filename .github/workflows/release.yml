@@ -140,7 +140,7 @@ jobs:
           tagName: ${{ github.ref_name || github.event.inputs.version }}
           releaseName: 'Wallets Tool ${{ github.ref_name || github.event.inputs.version }}'
           releaseBody: |
-            ## 🎉 新版本发布 v0.5.2
+            ## 🎉 新版本发布 v0.5.3
             
             ### 📦 安装包下载
             - **Windows**: 下载 `.exe` 文件
@@ -148,7 +148,9 @@ jobs:
             ### 🔄 更新说明
             ### ✨ New Features | 新功能
             
-            - **transfer:** 添加自动余额查询功能并优化转账流程
+            - **数据库:** 添加空投和浏览器自动化相关表结构
+            
+
             
 
             
