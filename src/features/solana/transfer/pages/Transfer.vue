@@ -517,7 +517,7 @@ async function checkGasPriceForTransfer() {
         transferPaused.value = false;
         stopGasPriceMonitoring();
         Notification.success({ content: `Gas价格 ${gasPrice.toFixed(3)} Gwei 已降至设定范围内，转账将自动恢复`, position: 'topLeft' });
-        if (pausedTransferData.value) await resumeTransfer();
+        pausedTransferData.value = null;
       }
       return true;
     }
@@ -578,7 +578,7 @@ async function continueTransferFromIndex(accountData, startIndex) {
     try {
       if (currentCoin.value.coin_type === 'base') {
         data.value[realIndex].exec_status = '1';
-        const res = await invoke('base_coin_transfer', { index: realIndex + 1, item, config });
+        const res = await invoke('sol_transfer', { index: realIndex + 1, item, config });
         if (typeof res === 'object' && res !== null) {
           if (res.success && res.tx_hash) { data.value[realIndex].exec_status = '2'; data.value[realIndex].error_msg = res.tx_hash; }
           else { data.value[realIndex].exec_status = '3'; data.value[realIndex].error_msg = res.error || '转账失败'; }
@@ -586,7 +586,7 @@ async function continueTransferFromIndex(accountData, startIndex) {
         updateTransferProgress();
       } else if (currentCoin.value.coin_type === 'token') {
         data.value[realIndex].exec_status = '1';
-        const res = await invoke('token_transfer', { index: realIndex + 1, item, config: { ...config, contract_address: currentCoin.value.contract_address, abi: currentCoin.value.abi } });
+        const res = await invoke('sol_token_transfer', { index: realIndex + 1, item, config: { ...config, contract_address: currentCoin.value.contract_address, abi: null } });
         if (typeof res === 'object' && res !== null) {
           if (res.success && res.tx_hash) { data.value[realIndex].exec_status = '2'; data.value[realIndex].error_msg = res.tx_hash; }
           else { data.value[realIndex].exec_status = '3'; data.value[realIndex].error_msg = res.error || '转账失败'; }
@@ -1057,13 +1057,6 @@ async function startTransfer() {
   startLoading.value = true;
   const performValidationAndStart = async () => {
     try {
-      if ((form.send_type === '1' || form.send_type === '4') && !balanceLoading.value) {
-        await queryBalance();
-        if (balanceStopFlag.value) {
-          startLoading.value = false;
-          return;
-        }
-      }
       const quickValidation = quickValidateData();
       if (!quickValidation.isValid) {
         startLoading.value = false;

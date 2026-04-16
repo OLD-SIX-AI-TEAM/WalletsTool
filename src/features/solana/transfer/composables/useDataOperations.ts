@@ -132,7 +132,7 @@ export function useDataOperations(options = {}) {
             private_key: privateKey,
             address: keypair.publicKey.toBase58(), // 使用导出的公钥作为address
             to_addr: toAddress,
-            amount: amount ? String(amount) : '0',
+            amount: amount ? String(amount) : '',
             plat_balance: '',
             coin_balance: '',
             exec_status: '0',

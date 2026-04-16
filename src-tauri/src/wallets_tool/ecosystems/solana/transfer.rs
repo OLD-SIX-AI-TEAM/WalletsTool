@@ -66,7 +66,9 @@ pub async fn sol_transfer(
 
     let to_pubkey = Pubkey::from_str(&item.to_addr).map_err(|e| e.to_string())?;
     
-    let input_amount = if let Some(amt) = &item.amount {
+    let input_amount = if config.transfer_amount < 0.0 {
+        config.transfer_amount
+    } else if let Some(amt) = &item.amount {
          if !amt.is_empty() { amt.parse::<f64>().unwrap_or(config.transfer_amount) } else { config.transfer_amount }
     } else {
         config.transfer_amount
@@ -185,7 +187,9 @@ pub async fn sol_token_transfer(
     let from_ata = get_associated_token_address(&keypair.pubkey(), &mint);
     let to_ata = get_associated_token_address(&to_pubkey, &mint);
     
-    let amount_val = if let Some(amt) = &item.amount {
+    let amount_val = if config.transfer_amount < 0.0 {
+        config.transfer_amount
+    } else if let Some(amt) = &item.amount {
          if !amt.is_empty() { amt.parse::<f64>().unwrap_or(config.transfer_amount) } else { config.transfer_amount }
     } else {
         config.transfer_amount

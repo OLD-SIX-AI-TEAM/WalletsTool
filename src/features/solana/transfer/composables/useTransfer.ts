@@ -300,17 +300,7 @@ export function useTransfer(options = {}) {
       return Number(amount.toFixed(precision));
     } else if (form.send_type === '1') {
       // 全部发送
-      if (currentCoin.value && currentCoin.value.coin_type === 'base') {
-        // Native SOL: Send -1 to trigger backend "Send All" logic (Precise fee calculation)
-        return -1;
-      }
-      
-      let balance = (item.coin_balance !== '' && item.coin_balance !== undefined && item.coin_balance !== null) ? Number(item.coin_balance) : 0;
-      
-      if (balance <= 0) return 0;
-      
-      // Token Transfer: Send All means sending the entire balance (no gas deduction from token amount)
-      // Pass -1 to backend to handle "Send All" for tokens as well, ensuring precision
+      // Native SOL 和 Token 都传 -1 让后端自行查询余额并计算精确金额
       return -1;
     }
     return 0;
@@ -378,7 +368,7 @@ export function useTransfer(options = {}) {
       return;
     }
 
-    const isSingleThread = enableMultiThread === '0' || enableMultiThread === false;
+    const isSingleThread = enableMultiThread.value === '0' || enableMultiThread.value === false;
 
     if (isSingleThread) {
       for (let index = 0; index < accountData.length; index++) {
