@@ -140,15 +140,17 @@ jobs:
           tagName: ${{ github.ref_name || github.event.inputs.version }}
           releaseName: 'Wallets Tool ${{ github.ref_name || github.event.inputs.version }}'
           releaseBody: |
-            ## 🎉 新版本发布 v0.5.3
+            ## 🎉 新版本发布 v0.5.4
             
             ### 📦 安装包下载
             - **Windows**: 下载 `.exe` 文件
             
             ### 🔄 更新说明
-            ### ✨ New Features | 新功能
+            ### 🐛 Bug Fixes | 修复
             
-            - **数据库:** 添加空投和浏览器自动化相关表结构
+            - **solana-transfer:** remove redundant pre-transfer balance query, fix send-all token amount zero error, fix single-thread execution order
+            
+
             
 
             

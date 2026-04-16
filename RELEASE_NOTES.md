@@ -1,4 +1,4 @@
-### ✨ New Features | 新功能
+### 🐛 Bug Fixes | 修复
 
-- **数据库:** 添加空投和浏览器自动化相关表结构
+- **solana-transfer:** remove redundant pre-transfer balance query, fix send-all token amount zero error, fix single-thread execution order
 
