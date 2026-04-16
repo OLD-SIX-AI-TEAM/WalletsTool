@@ -442,3 +442,167 @@ CREATE INDEX idx_monitor_history_address ON monitor_history(wallet_address);
 CREATE INDEX idx_monitor_history_chain ON monitor_history(chain_key);
 CREATE INDEX idx_monitor_history_type ON monitor_history(monitor_type);
 CREATE INDEX idx_monitor_history_created_at ON monitor_history(created_at);
+
+-- 浏览器自动化/空投相关表
+
+-- 空投钱包表
+CREATE TABLE IF NOT EXISTS airdrop_wallets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    address TEXT NOT NULL,
+    encrypted_private_key TEXT NOT NULL,
+    label TEXT,
+    group_name TEXT NOT NULL DEFAULT 'Default',
+    proxy TEXT NOT NULL DEFAULT 'Direct',
+    chain_type TEXT NOT NULL DEFAULT 'evm',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_airdrop_wallets_address ON airdrop_wallets(address);
+CREATE INDEX IF NOT EXISTS idx_airdrop_wallets_group ON airdrop_wallets(group_name);
+
+-- 浏览器环境配置表
+CREATE TABLE IF NOT EXISTS browser_profiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    user_agent TEXT,
+    viewport_width INTEGER NOT NULL DEFAULT 1920,
+    viewport_height INTEGER NOT NULL DEFAULT 1080,
+    device_scale_factor INTEGER NOT NULL DEFAULT 1,
+    locale TEXT NOT NULL DEFAULT 'en-US',
+    timezone_id TEXT NOT NULL DEFAULT 'America/New_York',
+    proxy_type TEXT NOT NULL DEFAULT 'direct',
+    proxy_host TEXT,
+    proxy_port INTEGER,
+    proxy_username TEXT,
+    proxy_password TEXT,
+    canvas_spoof BOOLEAN NOT NULL DEFAULT 1,
+    webgl_spoof BOOLEAN NOT NULL DEFAULT 1,
+    audio_spoof BOOLEAN NOT NULL DEFAULT 1,
+    timezone_spoof BOOLEAN NOT NULL DEFAULT 1,
+    geolocation_spoof BOOLEAN NOT NULL DEFAULT 1,
+    font_spoof BOOLEAN NOT NULL DEFAULT 1,
+    webrtc_spoof BOOLEAN NOT NULL DEFAULT 1,
+    navigator_override BOOLEAN NOT NULL DEFAULT 1,
+    webdriver_override BOOLEAN NOT NULL DEFAULT 1,
+    custom_headers TEXT,
+    headless BOOLEAN NOT NULL DEFAULT 0,
+    extensions TEXT,
+    is_default BOOLEAN NOT NULL DEFAULT 0,
+    hardware_concurrency INTEGER,
+    device_memory INTEGER,
+    color_depth INTEGER,
+    languages TEXT,
+    vendor TEXT,
+    gpu_vendor TEXT,
+    gpu_renderer TEXT,
+    color_scheme TEXT,
+    max_touch_points INTEGER,
+    has_touch BOOLEAN,
+    screen_orientation_angle INTEGER,
+    screen_orientation_type TEXT,
+    font_family TEXT,
+    client_hints_platform TEXT,
+    client_hints_platform_version TEXT,
+    client_hints_architecture TEXT,
+    client_hints_bitness TEXT,
+    client_hints_model TEXT,
+    client_hints_wow64 TEXT,
+    fingerprint_hash TEXT,
+    platform_name TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_browser_profiles_default ON browser_profiles(is_default);
+CREATE INDEX IF NOT EXISTS idx_browser_profiles_fingerprint_hash ON browser_profiles(fingerprint_hash);
+
+-- 自动化脚本表
+CREATE TABLE IF NOT EXISTS automation_scripts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    content TEXT NOT NULL,
+    compiled_content TEXT,
+    version INTEGER NOT NULL DEFAULT 1,
+    is_system BOOLEAN NOT NULL DEFAULT 0,
+    required_apis TEXT,
+    author TEXT,
+    tags TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_scripts_tags ON automation_scripts(tags);
+
+-- 自动化任务表
+CREATE TABLE IF NOT EXISTS automation_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    script_id INTEGER NOT NULL,
+    wallet_ids TEXT NOT NULL,
+    profile_strategy TEXT NOT NULL DEFAULT 'random',
+    specific_profile_id INTEGER,
+    schedule_type TEXT NOT NULL DEFAULT 'once',
+    schedule_config TEXT NOT NULL,
+    concurrency INTEGER NOT NULL DEFAULT 1,
+    timeout_seconds INTEGER NOT NULL DEFAULT 300,
+    retry_times INTEGER NOT NULL DEFAULT 3,
+    retry_interval_seconds INTEGER NOT NULL DEFAULT 60,
+    status TEXT NOT NULL DEFAULT 'draft',
+    last_run_time DATETIME,
+    next_run_time DATETIME,
+    total_runs INTEGER NOT NULL DEFAULT 0,
+    success_runs INTEGER NOT NULL DEFAULT 0,
+    failed_runs INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (script_id) REFERENCES automation_scripts(id),
+    FOREIGN KEY (specific_profile_id) REFERENCES browser_profiles(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_tasks_status ON automation_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_automation_tasks_next_run ON automation_tasks(next_run_time) WHERE status = 'enabled';
+
+-- 任务执行记录表
+CREATE TABLE IF NOT EXISTS task_executions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL,
+    wallet_id INTEGER NOT NULL,
+    profile_id INTEGER,
+    status TEXT NOT NULL,
+    start_time DATETIME,
+    end_time DATETIME,
+    duration_ms INTEGER,
+    error_message TEXT,
+    result_data TEXT,
+    logs TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (task_id) REFERENCES automation_tasks(id),
+    FOREIGN KEY (wallet_id) REFERENCES airdrop_wallets(id),
+    FOREIGN KEY (profile_id) REFERENCES browser_profiles(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_executions_task ON task_executions(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_executions_status ON task_executions(status);
+CREATE INDEX IF NOT EXISTS idx_task_executions_time ON task_executions(created_at DESC);
+
+-- 浏览器插件表
+CREATE TABLE IF NOT EXISTS browser_extensions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    path TEXT NOT NULL,
+    version TEXT,
+    author TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT 1,
+    is_builtin BOOLEAN NOT NULL DEFAULT 0,
+    tags TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_browser_extensions_enabled ON browser_extensions(enabled);

@@ -17,6 +17,9 @@ pub async fn init_public_database() -> Result<()> {
     // 保留向后兼容性调用（现在 public_init.sql 已包含所有数据）
     insert_default_chain_data(&pool).await?;
 
+    // 初始化空投/浏览器自动化相关表
+    crate::wallets_tool::airdrop::db::init_airdrop_tables(&pool).await?;
+
     DualDatabaseManager::init_public_pool(pool);
     DualDatabaseManager::init_secure_pool_placeholder();
 

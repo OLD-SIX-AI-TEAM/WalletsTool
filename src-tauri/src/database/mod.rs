@@ -546,6 +546,8 @@ pub async fn reload_database() -> Result<String, String> {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     delete_db_files(legacy_db_path, enable_debug).await?;
+    // 等待确保文件锁释放
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
 
     // 重新初始化公开数据库
     init_public_database().await.map_err(|e| e.to_string())?;
